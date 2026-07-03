@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SPARK Master Overlay</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;background:transparent;overflow:hidden}
+
+.panel{
+  position:fixed;
+  border:2px solid transparent;
+  border-radius:10px;
+  overflow:hidden;
+  display:none;
+  min-width:120px;
+  min-height:80px;
+  transition:border-color .2s ease, box-shadow .2s ease;
+}
+.panel.visible{ display:block; }
+.panel:hover{
+  border-color:rgba(255,200,61,.5);
+  box-shadow:0 4px 24px rgba(0,0,0,.4);
+}
+
+/* Drag handle bar — only visible on hover so it doesn't clutter the stream */
+.panel-handle{
+  position:absolute;top:0;left:0;right:14px;height:20px;
+  background:rgba(255,200,61,.18);
+  cursor:move;z-index:10;
+  display:flex;align-items:center;padding:0 6px;
+  opacity:0;transition:opacity .2s;
+  font-size:.65rem;color:rgba(255,200,61,.8);letter-spacing:.12em;user-select:none;
+}
+.panel:hover .panel-handle{ opacity:1; }
+
+/* Resize handle — bottom-right corner */
+.panel-resize{
+  position:absolute;bottom:0;right:0;width:14px;height:14px;
+  cursor:se-resize;z-index:10;
+  opacity:0;transition:opacity .2s;
+}
+.panel:hover .panel-resize{ opacity:1; }
+.panel-resize::after{
+  content:'';position:absolute;bottom:3px;right:3px;
+  width:0;height:0;
+  border-left:8px solid transparent;
+  border-bottom:8px solid rgba(255,200,61,.6);
+}
+
+iframe{
+  width:100%;height:100%;
+  border:none;background:transparent;
+  display:block;
+}
+</style>
+</head>
+<body>
+
+<div class="panel" id="panel-wheel" data-tool="wheel">
+  <div class="panel-handle">⠿ WHEEL</div>
+  <iframe src="/wheel" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
+<div class="panel" id="panel-giveaway" data-tool="giveaway">
+  <div class="panel-handle">⠿ GIVEAWAY</div>
+  <iframe src="/giveaway" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
+<div class="panel" id="panel-timers" data-tool="timers">
+  <div class="panel-handle">⠿ TIMERS</div>
+  <iframe src="/timers" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
+<div class="panel" id="panel-tasks" data-tool="tasks">
+  <div class="panel-handle">⠿ TASKS</div>
+  <iframe src="/tasks" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
+<div class="panel" id="panel-goals" data-tool="goals">
+  <div class="panel-handle">⠿ GOALS</div>
+  <iframe src="/goals" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
+<div class="panel" id="panel-checkins" data-tool="checkins">
+  <div class="panel-handle">⠿ CHECK-INS</div>
+  <iframe src="/checkins" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
+<div class="panel" id="panel-nowplaying" data-tool="nowplaying">
+  <div class="panel-handle">⠿ NOW PLAYING</div>
+  <iframe src="/nowplaying" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
+<script type="module">
+import { setTool, on, startPolling } from '/js/overlay-common.js';
+
+// ── Default layouts ────────────────────────────────────────────────────────────
+const DEFAULTS = {
+  wheel:    { x:0,   y:0,   w:600, h:600 },
+  giveaway: { x:0,   y:0,   w:600, h:600 },
+  timers:   { x: window.innerWidth-280, y:20, w:260, h:300 },
+  tasks:    { x:20,  y:20,  w:320, h:400 },
+  goals:    { x:20,  y:window.innerHeight-120, w:440, h:80 },
+  checkins:   { x: window.innerWidth-420, y: window.innerHeight-220, w:400, h:200 },
+  nowplaying: { x: 20, y: window.innerHeight-140, w:440, h:120 },
+};
+
+// ── Persist positions to localStorage ─────────────────────────────────────────
+function loadLayouts(){
+  try{ return JSON.parse(localStorage.getItem('spark-master-layouts')||'{}'); }
+  catch(e){ return {}; }
+}
+function saveLayouts(layouts){
+  localStorage.setItem('spark-master-layouts', JSON.stringify(layouts));
+}
+
+// ── Visibility state (per tool) ────────────────────────────────────────────────
+// All start hidden; server tells us which are master-mode when first polled.
+const visibility = { wheel:false, giveaway:false, timers:false, tasks:false, goals:false, checkins:false, nowplaying:false };
+function applyVisibility(tool, visible){
+  visibility[tool] = visible;
+  const panel = document.getElementById('panel-'+tool);
+  if(panel) panel.classList.toggle('visible', visible);
+}
+
+// ── Apply layout to a panel ────────────────────────────────────────────────────
+function applyLayout(panel, layout){
+  panel.style.left   = layout.x + 'px';
+  panel.style.top    = layout.y + 'px';
+  panel.style.width  = layout.w + 'px';
+  panel.style.height = layout.h + 'px';
+}
+
+// ── Drag ──────────────────────────────────────────────────────────────────────
+function makeDraggable(panel, layouts){
+  const handle = panel.querySelector('.panel-handle');
+  handle.addEventListener('mousedown', e=>{
+    e.preventDefault();
+    const startX = e.clientX - panel.offsetLeft;
+    const startY = e.clientY - panel.offsetTop;
+    function onMove(ev){
+      panel.style.left = Math.max(0, ev.clientX - startX) + 'px';
+      panel.style.top  = Math.max(0, ev.clientY - startY) + 'px';
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const tool = panel.dataset.tool;
+      layouts[tool] = layouts[tool]||{...DEFAULTS[tool]};
+      layouts[tool].x = panel.offsetLeft;
+      layouts[tool].y = panel.offsetTop;
+      saveLayouts(layouts);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+function makeResizable(panel, layouts){
+  const handle = panel.querySelector('.panel-resize');
+  handle.addEventListener('mousedown', e=>{
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const startW = panel.offsetWidth, startH = panel.offsetHeight;
+    function onMove(ev){
+      const w = Math.max(120, startW + ev.clientX - startX);
+      const h = Math.max(80,  startH + ev.clientY - startY);
+      panel.style.width  = w + 'px';
+      panel.style.height = h + 'px';
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const tool = panel.dataset.tool;
+      layouts[tool] = layouts[tool]||{...DEFAULTS[tool]};
+      layouts[tool].w = panel.offsetWidth;
+      layouts[tool].h = panel.offsetHeight;
+      saveLayouts(layouts);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+const layouts = loadLayouts();
+const panels = document.querySelectorAll('.panel');
+panels.forEach(panel=>{
+  const tool = panel.dataset.tool;
+  const layout = layouts[tool] || DEFAULTS[tool];
+  applyLayout(panel, layout);
+  makeDraggable(panel, layouts);
+  makeResizable(panel, layouts);
+});
+
+// Listen for visibility events from the app
+setTool('master');
+on('visibility', ev=>{
+  if(ev.tool) applyVisibility(ev.tool, !!ev.visible);
+});
+on('_snapshot', snap=>{
+  if(!snap || !snap.visibility) return;
+  // Apply visibility state from the server snapshot (set by app on boot)
+  Object.entries(snap.visibility).forEach(([tool, visible])=>{
+    applyVisibility(tool, visible);
+  });
+});
+
+startPolling();
+</script>
+</body>
+</html>

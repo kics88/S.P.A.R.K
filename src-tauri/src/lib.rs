@@ -1,0 +1,474 @@
+use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
+use std::collections::VecDeque;
+use serde::{Serialize, Deserialize};
+use serde_json::{json, Value};
+use tauri::{Manager, State};
+
+pub mod overlay;
+pub mod twitch;
+
+// ── Persistent data ───────────────────────────────────────────────────────────
+
+#[derive(Default, Clone, Serialize, Deserialize)]
+pub struct AppData {
+    #[serde(default)] pub wheel:    Value,
+    #[serde(default)] pub giveaway: Value,
+    #[serde(default)] pub timers:   Value,
+    #[serde(default)] pub tasks:    Value,
+    #[serde(default)] pub goals:    Value,
+    #[serde(default)] pub checkins: Value,
+    #[serde(default)] pub songrequest: Value,
+    #[serde(default)] pub chat:     Value,
+    #[serde(default)] pub counters: Value,
+    #[serde(default)] pub settings: Value,
+    #[serde(default)] pub twitch_tokens: Value,
+}
+
+// ── Shared runtime state ──────────────────────────────────────────────────────
+
+pub struct Shared {
+    pub data:      Mutex<AppData>,
+    pub data_path: Mutex<std::path::PathBuf>,
+    // Overlay event bus (all tools write here; overlay long-polls)
+    pub overlay_seq:    AtomicU64,
+    pub overlay_events: Mutex<VecDeque<(u64, String)>>,
+    // Wakes long-polling overlay connections the instant an event is pushed
+    pub overlay_wake_lock: Mutex<()>,
+    pub overlay_wake:      Condvar,
+    // Follower-status cache shared by every tool: user_id -> (is_follower, checked_at_secs)
+    pub follower_cache: Mutex<std::collections::HashMap<String, (bool, u64)>>,
+    // Latest full state snapshots for each overlay (served on first connect)
+    pub overlay_wheel:    Mutex<String>,
+    pub overlay_giveaway: Mutex<String>,
+    pub overlay_timers:   Mutex<String>,
+    pub overlay_tasks:    Mutex<String>,
+    pub overlay_goals:    Mutex<String>,
+    pub overlay_checkins: Mutex<String>,
+    pub overlay_srqueue:  Mutex<String>,
+    pub overlay_chat:     Mutex<String>,
+    pub overlay_counters: Mutex<String>,
+    // Per-tool master visibility (true = show on master)
+    pub tool_visibility: Mutex<std::collections::HashMap<String, bool>>,
+    // HTTP server port
+    pub server_port: AtomicU64,
+    // Twitch runtime
+    pub twitch_running: AtomicBool,
+    pub twitch_stop:    Arc<AtomicBool>,
+    // Chat listener stop signal
+    pub chat_stop: Arc<AtomicBool>,
+}
+
+impl Shared {
+    pub fn push_overlay_event(&self, tool: &str, payload: Value) {
+        let id = self.overlay_seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut v = payload;
+        v["_tool"] = json!(tool);
+        v["_id"]   = json!(id);
+        let s = v.to_string();
+        {
+            let mut q = self.overlay_events.lock().unwrap();
+            q.push_back((id, s));
+            while q.len() > 500 { q.pop_front(); }
+        }
+        self.overlay_wake.notify_all();
+    }
+}
+
+// ── Disk helpers ──────────────────────────────────────────────────────────────
+
+pub fn load_from_disk(path: &std::path::Path) -> AppData {
+    if let Ok(b) = std::fs::read(path) {
+        if let Ok(d) = serde_json::from_slice::<AppData>(&b) { return d; }
+    }
+    AppData::default()
+}
+
+pub fn save_to_disk(path: &std::path::Path, data: &AppData) {
+    if let Some(p) = path.parent() { let _ = std::fs::create_dir_all(p); }
+    if let Ok(b) = serde_json::to_vec_pretty(data) {
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, &b).is_ok() { let _ = std::fs::rename(&tmp, path); }
+    }
+}
+
+// ── Generic persist helper called by every tool ───────────────────────────────
+
+fn do_save(shared: &Shared) {
+    let path = shared.data_path.lock().unwrap().clone();
+    let data = shared.data.lock().unwrap().clone();
+    save_to_disk(&path, &data);
+}
+
+// ── Tauri commands ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+fn load_all_data(shared: State<Shared>) -> Value {
+    let d = shared.data.lock().unwrap();
+    json!({
+        "wheel":    d.wheel,
+        "giveaway": d.giveaway,
+        "timers":   d.timers,
+        "tasks":    d.tasks,
+        "goals":    d.goals,
+        "checkins": d.checkins,
+        "songrequest": d.songrequest,
+        "chat":     d.chat,
+        "counters": d.counters,
+        "settings": d.settings,
+        "twitch_tokens": d.twitch_tokens,
+    })
+}
+
+// ── Tool visibility (master overlay show/hide per tool) ───────────────────────
+
+#[tauri::command]
+fn set_tool_visibility(shared: State<Shared>, tool: String, visible: bool) {
+    // Store so the master snapshot includes current visibility on first connect.
+    shared.tool_visibility.lock().unwrap().insert(tool.clone(), visible);
+    // Also push as an event so already-connected masters update live.
+    let id = shared.overlay_seq.fetch_add(1, Ordering::SeqCst) + 1;
+    let payload = json!({
+        "_tool": "master",
+        "_id": id,
+        "type": "visibility",
+        "tool": tool,
+        "visible": visible,
+    }).to_string();
+    {
+        let mut q = shared.overlay_events.lock().unwrap();
+        q.push_back((id, payload));
+        while q.len() > 500 { q.pop_front(); }
+    }
+    shared.overlay_wake.notify_all();
+}
+
+// ── Wheel commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_wheel(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().wheel = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn wheel_overlay_update(shared: State<Shared>, wheel: Value) {
+    let s = wheel.to_string();
+    *shared.overlay_wheel.lock().unwrap() = s;
+    shared.push_overlay_event("wheel", json!({"type":"wheel","wheel":wheel}));
+}
+
+#[tauri::command]
+fn wheel_overlay_spin(shared: State<Shared>, final_angle: f64, winner: String, winner_seconds: f64) {
+    shared.push_overlay_event("wheel", json!({
+        "type": "spin",
+        "final_angle": final_angle,
+        "winner": winner,
+        "winner_seconds": winner_seconds,
+    }));
+}
+
+// ── Giveaway commands ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_giveaway(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().giveaway = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn giveaway_overlay_update(shared: State<Shared>, state: Value) {
+    let s = state.to_string();
+    *shared.overlay_giveaway.lock().unwrap() = s;
+    shared.push_overlay_event("giveaway", json!({"type":"giveaway_state","state":state}));
+}
+
+#[tauri::command]
+fn giveaway_overlay_draw(shared: State<Shared>, winner: String, entries: Vec<String>, winner_seconds: Option<f64>) {
+    shared.push_overlay_event("giveaway", json!({
+        "type": "giveaway_draw",
+        "winner": winner,
+        "entries": entries,
+        "winner_seconds": winner_seconds.unwrap_or(8.0),
+    }));
+}
+
+// ── Timer commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_timers(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().timers = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn timers_overlay_update(shared: State<Shared>, timers: Value) {
+    let s = timers.to_string();
+    *shared.overlay_timers.lock().unwrap() = s;
+    shared.push_overlay_event("timers", json!({"type":"timers_state","timers":timers}));
+}
+
+// ── Task commands ─────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_tasks(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().tasks = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn tasks_overlay_update(shared: State<Shared>, state: Value) {
+    let s = state.to_string();
+    *shared.overlay_tasks.lock().unwrap() = s;
+    shared.push_overlay_event("tasks", json!({"type":"tasks_state","state":state}));
+}
+
+// ── Goals commands ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_goals(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().goals = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn goals_overlay_update(shared: State<Shared>, goals: Value) {
+    let s = goals.to_string();
+    *shared.overlay_goals.lock().unwrap() = s;
+    shared.push_overlay_event("goals", json!({"type":"goals_state","goals":goals}));
+}
+
+// ── Chat commands ──────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_chat(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().chat = data;
+    do_save(&shared);
+}
+
+// Pushes the current style/settings config. Stored as the snapshot so the
+// overlay (and any in-app demo preview iframe) gets it immediately on connect,
+// and also broadcast live so an already-open overlay updates in real time.
+#[tauri::command]
+fn chat_overlay_settings(shared: State<Shared>, cfg: Value) {
+    let s = json!({"type":"settings","cfg":cfg}).to_string();
+    *shared.overlay_chat.lock().unwrap() = s;
+    shared.push_overlay_event("chat", json!({"type":"settings","cfg":cfg}));
+}
+
+// One live chat message, already tagged with its role by the frontend.
+#[tauri::command]
+fn chat_overlay_message(shared: State<Shared>, event: Value) {
+    shared.push_overlay_event("chat", event);
+}
+
+// Follow / sub alert card.
+#[tauri::command]
+fn chat_overlay_alert(shared: State<Shared>, event: Value) {
+    shared.push_overlay_event("chat", event);
+}
+
+// Channel + global emote name→url map, pushed once after fetch (not part of
+// the settings snapshot since it can be sizeable and changes far less often).
+#[tauri::command]
+fn chat_overlay_emotes(shared: State<Shared>, emotes: Value) {
+    shared.push_overlay_event("chat", json!({"type":"emotes","emotes":emotes}));
+}
+
+// ── Counters commands ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_counters(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().counters = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn counters_overlay_update(shared: State<Shared>, counters: Value) {
+    let s = counters.to_string();
+    *shared.overlay_counters.lock().unwrap() = s;
+    shared.push_overlay_event("counters", json!({"type":"counters_state","counters":counters}));
+}
+
+// ── Overlay URL ───────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn overlay_url(shared: State<Shared>) -> Value {
+    let port = shared.server_port.load(Ordering::SeqCst);
+    json!({
+        "master":   format!("http://localhost:{}/", port),
+        "wheel":    format!("http://localhost:{}/wheel", port),
+        "giveaway": format!("http://localhost:{}/giveaway", port),
+        "timers":   format!("http://localhost:{}/timers", port),
+        "tasks":    format!("http://localhost:{}/tasks", port),
+        "goals":    format!("http://localhost:{}/goals", port),
+        "checkins":   format!("http://localhost:{}/checkins", port),
+        "nowplaying": format!("http://localhost:{}/nowplaying", port),
+        "srqueue":    format!("http://localhost:{}/srqueue", port),
+        "chat":       format!("http://localhost:{}/chat", port),
+        "counters":   format!("http://localhost:{}/counters", port),
+    })
+}
+
+// ── App entry ─────────────────────────────────────────────────────────────────
+
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            let dir = app.path().app_data_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let data_path = dir.join("spark-data.json");
+            let data = load_from_disk(&data_path);
+            let stop  = Arc::new(AtomicBool::new(false));
+            let cstop = Arc::new(AtomicBool::new(false));
+            let shared = Shared {
+                data:      Mutex::new(data),
+                data_path: Mutex::new(data_path),
+                overlay_seq:    AtomicU64::new(0),
+                overlay_events: Mutex::new(VecDeque::new()),
+                overlay_wake_lock: Mutex::new(()),
+                overlay_wake:      Condvar::new(),
+                follower_cache: Mutex::new(std::collections::HashMap::new()),
+                overlay_wheel:    Mutex::new("{}".into()),
+                overlay_giveaway: Mutex::new("{}".into()),
+                overlay_timers:   Mutex::new("[]".into()),
+                overlay_tasks:    Mutex::new("{}".into()),
+                overlay_goals:    Mutex::new("[]".into()),
+                overlay_checkins: Mutex::new("{}".into()),
+                overlay_srqueue:  Mutex::new("{}".into()),
+                overlay_chat:     Mutex::new("{}".into()),
+                overlay_counters: Mutex::new("[]".into()),
+                tool_visibility:  Mutex::new(std::collections::HashMap::new()),
+                server_port: AtomicU64::new(0),
+                twitch_running: AtomicBool::new(false),
+                twitch_stop: stop,
+                chat_stop: cstop,
+            };
+            app.manage(shared);
+            overlay::start_server(app.handle().clone());
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            load_all_data,
+            get_app_version,
+            set_tool_visibility,
+            save_wheel, wheel_overlay_update, wheel_overlay_spin,
+            save_giveaway, giveaway_overlay_update, giveaway_overlay_draw,
+            save_timers, timers_overlay_update,
+            save_tasks, tasks_overlay_update,
+            save_goals, goals_overlay_update,
+            save_checkins, checkins_overlay_event,
+            save_songrequest,
+            srqueue_overlay_event,
+            nowplaying_overlay_event,
+            save_chat, chat_overlay_settings, chat_overlay_message, chat_overlay_alert, chat_overlay_emotes,
+            save_counters, counters_overlay_update,
+            backup_data, restore_data,
+            overlay_url,
+            twitch::twitch_start_device_auth,
+            twitch::twitch_poll_device_auth,
+            twitch::twitch_load_saved,
+            twitch::twitch_get_rewards,
+            twitch::twitch_connect_eventsub,
+            twitch::twitch_connect_chat,
+            twitch::twitch_disconnect,
+            twitch::twitch_check_follower,
+            twitch::twitch_check_subscriber,
+            twitch::twitch_get_follower_count,
+            twitch::twitch_get_channel_emotes,
+            twitch::twitch_get_global_emotes,
+            twitch::twitch_get_user_info,
+            twitch::twitch_send_chat_message,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error running SPARK");
+}
+
+// ── Check-in commands ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_checkins(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().checkins = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn checkins_overlay_event(shared: State<Shared>, event: Value) {
+    shared.push_overlay_event("checkins", event);
+}
+
+
+// ── Now Playing overlay event ─────────────────────────────────────────────────
+
+#[tauri::command]
+fn nowplaying_overlay_event(shared: State<Shared>, event: Value) {
+    shared.push_overlay_event("nowplaying", event);
+}
+
+// ── Song Request ──────────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_songrequest(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().songrequest = data;
+    do_save(&shared);
+}
+
+#[tauri::command]
+fn srqueue_overlay_event(shared: State<Shared>, event: Value) {
+    *shared.overlay_srqueue.lock().unwrap() = event.to_string();
+    shared.push_overlay_event("srqueue", event);
+}
+
+// ── Backup / Restore ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn backup_data(shared: State<Shared>) -> Result<Value, String> {
+    let d = shared.data.lock().unwrap();
+    // Exclude twitch_tokens from backup
+    Ok(json!({
+        "wheel":    d.wheel,
+        "giveaway": d.giveaway,
+        "timers":   d.timers,
+        "tasks":    d.tasks,
+        "goals":    d.goals,
+        "checkins": d.checkins,
+        "songrequest": d.songrequest,
+        "chat":     d.chat,
+        "counters": d.counters,
+        "settings": d.settings,
+        "_spark_backup": true,
+        "_version": 1,
+    }))
+}
+
+#[tauri::command]
+fn restore_data(shared: State<Shared>, data: Value) -> Result<(), String> {
+    if data.get("_spark_backup").and_then(|v| v.as_bool()) != Some(true) {
+        return Err("Not a valid SPARK backup file.".into());
+    }
+    let path;
+    {
+        let mut d = shared.data.lock().unwrap();
+        if let Some(v) = data.get("wheel")    { d.wheel    = v.clone(); }
+        if let Some(v) = data.get("giveaway") { d.giveaway = v.clone(); }
+        if let Some(v) = data.get("timers")   { d.timers   = v.clone(); }
+        if let Some(v) = data.get("tasks")    { d.tasks    = v.clone(); }
+        if let Some(v) = data.get("goals")    { d.goals    = v.clone(); }
+        if let Some(v) = data.get("checkins")    { d.checkins    = v.clone(); }
+        if let Some(v) = data.get("songrequest") { d.songrequest = v.clone(); }
+        if let Some(v) = data.get("chat")     { d.chat     = v.clone(); }
+        if let Some(v) = data.get("counters") { d.counters = v.clone(); }
+        if let Some(v) = data.get("settings") { d.settings = v.clone(); }
+        path = shared.data_path.lock().unwrap().clone();
+        save_to_disk(&path, &d);
+    }
+    Ok(())
+}
