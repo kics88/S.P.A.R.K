@@ -1,4 +1,5 @@
-# S.P.A.R.K.
+# S.P.A.R.K. (BETA)
+Some things may be a little janky/not work properly.
 
 Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch streamers. Everything will run locally on your PC.
 
