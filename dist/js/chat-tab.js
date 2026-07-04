@@ -66,7 +66,7 @@ function presetPickerHtml(){
   const customNames = Object.keys(cfg.customPresets||{});
   return `<div class="card">
     <h2>Style Preset</h2>
-    <div class="hint">Pick a full look, then fine-tune anything below — every field can be overridden. Spans everything from Serious to Bland to full Cutesy.</div>
+    <div class="hint">Pick a full look, then fine-tune anything below. Every field can be overridden. Spans everything from Serious to Bland to full Cutesy.</div>
     <div class="row mt" style="flex-wrap:wrap;gap:6px">
       ${names.map(n=>`<button class="btn-sm chPresetBtn ${cfg.preset===n?'btn-gold':'btn-ghost'}" data-preset="${esc(n)}">${esc(n)}</button>`).join('')}
       <button class="btn-sm chPresetBtn ${cfg.preset==='Custom'?'btn-gold':'btn-ghost'}" data-preset="Custom">Custom</button>
@@ -172,7 +172,7 @@ function layoutSectionHtml(){
     ${field('Background opacity', numInput('lfBgOpacity', l.bgOpacity, 0, 1, .05))}
     ${l.bg==='image' ? field('Background image URL', `<input type="text" id="lfBgImage" value="${esc(l.bgImage||'')}" placeholder="https://...">`) : ''}
   </div>
-  ${l.bg==='image' ? `<div class="hint">Image URL must be a public web link — local files can't be reached by an OBS browser source.</div>` : ''}
+  ${l.bg==='image' ? `<div class="hint">Image URL must be a public web link. Local files can't be reached by an OBS browser source.</div>` : ''}
   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
     ${field('New messages grow', selectInput('lfDir', [{v:'up',l:'Upward (newest bottom)'},{v:'down',l:'Downward (newest top)'}], l.direction))}
     ${field('Alignment', selectInput('lfAlign', [{v:'left',l:'Left'},{v:'center',l:'Centre'},{v:'right',l:'Right'}], l.align))}
@@ -294,7 +294,7 @@ function alertCardHtml(kind, prefix){
   const a = cfg.alerts[kind];
   return `<div class="card" id="${prefix}Card">
     <h2>${kind==='follow'?'Follow Alert':'Subscription Alert'}</h2>
-    ${checkInput(prefix+'En', a.enabled!==false, 'Enabled — shows inline in the chat feed')}
+    ${checkInput(prefix+'En', a.enabled!==false, 'Enabled, shows inline in the chat feed')}
     <label class="mt">Message template</label>
     <input type="text" id="${prefix}Text" value="${esc(a.text||'')}">
     <div class="hint">Use {name} for the viewer's display name.</div>

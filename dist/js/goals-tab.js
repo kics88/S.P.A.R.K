@@ -160,7 +160,7 @@ function barCardHtml(bar){
       <button class="btn-sm del" data-del="${bar.id}">Remove</button>
     </div>
     <canvas id="bm-${bar.id}" style="border-radius:8px;display:block;margin-top:8px;width:${isV?'35px':'180px'};height:${isV?'110px':'36px'}"></canvas>
-    <div style="font-size:.75rem;color:var(--muted);margin-top:5px">${Math.floor(bar.current||0)} / ${ms.target}${ms.label?' — '+esc(ms.label):''} ${bar.currentMilestone<bar.milestones.length-1?'<span class="tag">Milestone '+(bar.currentMilestone+1)+'/'+bar.milestones.length+'</span>':''}</div>
+    <div style="font-size:.75rem;color:var(--muted);margin-top:5px">${Math.floor(bar.current||0)} / ${ms.target}${ms.label?' ('+esc(ms.label)+')':''} ${bar.currentMilestone<bar.milestones.length-1?'<span class="tag">Milestone '+(bar.currentMilestone+1)+'/'+bar.milestones.length+'</span>':''}</div>
     ${bar.source==='custom'?`<div class="hint">Chat: <code>!${bar.name.toLowerCase().replace(/\s/g,'')}</code></div>`:''}
     <div class="row mt" style="gap:6px">
       <span style="font-size:.78rem;color:var(--muted);flex-shrink:0">Manual:</span>

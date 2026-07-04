@@ -211,7 +211,7 @@ function buildLeftColumn(){
     <input type="number" id="wWinnerSecs" min="1" max="60" value="5" style="width:80px">
   </div>
   <div class="card">
-    <h2>Twitch — spin on redeem</h2>
+    <h2>Twitch: spin on redeem</h2>
     <label class="checkrow"><input type="checkbox" id="wUsePoints" checked> Channel point redeems</label>
     <div id="wRewardPick" class="mt">
       <div class="row"><select id="wRewardSelect" style="flex:1"></select><button class="btn-sm" id="wRefreshRewards">⟳</button></div>

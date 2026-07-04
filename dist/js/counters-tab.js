@@ -127,7 +127,7 @@ function counterCardHtml(c){
       <button class="btn-sm btn-ghost" data-edit="${c.id}">Edit</button>
       <button class="btn-sm del" data-del="${c.id}">Remove</button>
     </div>
-    <div class="hint">${cmds || 'No commands set — edit to add one'}</div>
+    <div class="hint">${cmds || 'No commands set. Edit to add one'}</div>
     <div class="row mt" style="gap:8px;align-items:center">
       <button class="btn-sm mini" data-dec="${c.id}">−</button>
       <span id="cnt-val-${c.id}" style="font-size:1.3rem;font-weight:800;color:var(--gold);min-width:44px;text-align:center">${c.value}</span>
@@ -146,7 +146,7 @@ function refreshCard(c){
 
 function renderList(){
   const el = $('cntList'); if(!el) return;
-  if(!counters.length){ el.innerHTML = '<div class="hint">No counters yet — add one above.</div>'; return; }
+  if(!counters.length){ el.innerHTML = '<div class="hint">No counters yet. Add one above.</div>'; return; }
   el.innerHTML = counters.map(counterCardHtml).join('');
   wireListEvents();
 }

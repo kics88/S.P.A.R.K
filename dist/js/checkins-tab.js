@@ -175,7 +175,7 @@ function buildFirstSection(){
   el.innerHTML=`
   <div class="card">
     <h2>First Claim</h2>
-    <div class="hint">Separate reward — the first viewer to redeem this stays displayed until cleared.</div>
+    <div class="hint">Separate reward. The first viewer to redeem this stays displayed until cleared.</div>
     <label class="mt">Reward (from the list below)</label>
     <div class="row"><select id="ciFirstReward" style="flex:1"></select><button class="btn-sm" id="ciRefreshFirst">Refresh</button></div>
     <label class="checkrow"><input type="checkbox" id="ciFirstAny"> Any redeem = First Claim</label>

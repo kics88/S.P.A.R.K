@@ -23,7 +23,7 @@ async function afterConnected(){
     await invoke('twitch_connect_chat',{ channel: who.login });
     // auto-start EventSub so redeems work across all tools immediately
     await invoke('twitch_connect_eventsub');
-    setTwStatus('on',`Connected as ${who.login} — listening for redeems`);
+    setTwStatus('on',`Connected as ${who.login}, listening for redeems`);
     // notify all tabs
     window.dispatchEvent(new CustomEvent('spark-twitch-status',{detail:{connected:true}}));
   }catch(e){ setTwStatus('err',String(e)); }
@@ -39,7 +39,7 @@ export async function initSettings(){
       <span style="font-weight:700" id="settVersion">SPARK v…</span>
       <span class="tag" style="background:#5c2a2a;color:#ffadad;border-color:#5c2a2a">BETA</span>
     </div>
-    <div class="hint mt">This build is still in active development — not a 1.0 release. Expect rough edges, and please report anything odd.</div>
+    <div class="hint mt">This build is still in active development, not a 1.0 release. Expect rough edges, and please report anything odd.</div>
   </div>
   <div class="card" style="max-width:520px">
     <h2>Twitch Connection</h2>
@@ -77,7 +77,7 @@ export async function initSettings(){
   <div class="card" style="max-width:520px;margin-top:0">
     <h2>Overlay</h2>
     <div class="hint">
-      <b>Master overlay</b> — shows all tools in one browser source.<br>
+      <b>Master overlay</b>: shows all tools in one browser source.<br>
       Each tool tab also has a toggle to use its own unique overlay URL instead.<br><br>
       Add the URL as a <b>Browser Source</b> in OBS / Meld / Streamlabs.<br>
       The app must be running for the overlay to work.
@@ -85,7 +85,7 @@ export async function initSettings(){
   </div>
   <div class="card" style="max-width:520px;margin-top:0">
     <h2>Backup &amp; Restore</h2>
-    <div class="hint" style="margin-bottom:12px">Export a backup of all your lists, goals, check-in counts, and settings. Twitch tokens are excluded — you'll reconnect on a new PC in ~30 seconds.</div>
+    <div class="hint" style="margin-bottom:12px">Export a backup of all your lists, goals, check-in counts, and settings. Twitch tokens are excluded. You'll reconnect on a new PC in about 30 seconds.</div>
     <div class="row">
       <button class="btn-sm btn-gold" id="settExportBtn">Export Backup</button>
       <button class="btn-sm" id="settImportBtn">Import Backup</button>
