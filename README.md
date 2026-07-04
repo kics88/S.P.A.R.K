@@ -1,4 +1,5 @@
-# S.P.A.R.K.
+# S.P.A.R.K. (BETA)
+Some things may be a little janky/not work properly.
 
 Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch streamers. Everything will run locally on your PC.
 
@@ -36,7 +37,7 @@ _**NOTE:** The master overlay is buggy and a work in progress_
 
 ## Install
 
-1. Download the latest setup exe from [Releases](https://github.com/kics88/S.P.A.R.K/releases/latest).
+1. Download the latest setup exe from [Releases](https://github.com/D3stiny82/S.P.A.R.K/releases/latest).
 2. Run it. Windows may warn about an unknown publisher, this is normal for a small unsigned app.
 3. The app checks for new versions on startup and shows a banner when one is out.
 
