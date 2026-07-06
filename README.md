@@ -33,6 +33,7 @@ Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch stre
 <img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/93be422b-6426-4a96-a714-5f82f8770c6b" />
 
 * **Credits** - end of stream rolling credits for mods, VIPs, subs, followers and chatters, plus a free text special thanks section. Only viewers who actually chatted get included. Pick a style preset or customize colors, fonts, scroll direction/speed, and section order yourself.
+<img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/25c70d9b-39b1-43ba-92a2-df9347fce06b" />
 
 Every tool has its own OBS browser source overlay, plus a master overlay that shows them all in one source. 
 _**NOTE:** The master overlay is buggy and a work in progress_
