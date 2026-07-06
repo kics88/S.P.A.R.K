@@ -7,6 +7,7 @@ import { initCheckins }   from './checkins-tab.js';
 import { initSongRequest } from './songrequest-tab.js';
 import { initChat }       from './chat-tab.js';
 import { initCounters }   from './counters-tab.js';
+import { initCredits }    from './credits-tab.js';
 import { initSettings }   from './settings-tab.js';
 import { store }          from './store.js';
 
@@ -209,6 +210,24 @@ const HELP_CONTENT = {
       + '<p>Pick a colour theme or go fully <strong>Custom</strong>: shape, glow, fonts, separate colours/sizes for the label and the number, a change animation (pop/bounce/shake/flash), and a text template using <code>{name}</code> and <code>{value}</code>.</p>'
       + '<h3>OBS Overlay</h3>'
       + '<p>Copy the <strong>Overlay URL</strong> and add it as a Browser Source in OBS. All visible counters render together, stacked or in a row.</p>'
+  },
+  credits: {
+    title: 'Credits',
+    html: '<h3>Overview</h3>'
+      + '<p>End-of-stream rolling credits, like a movie. Only viewers who actually chatted are included, grouped into Moderators, VIPs, Subscribers, Followers, Viewers, and a free-text Special Thanks section.</p>'
+      + '<h3>Sections</h3>'
+      + '<ul>'
+      + '<li>Toggle any section on/off, rename its heading, and reorder sections in <strong>Section Order</strong>.</li>'
+      + '<li>If a chatter qualifies for more than one section (e.g. Mod + Sub), <strong>Role Priority</strong> decides which one they show up in.</li>'
+      + '<li>Use <strong>Manually add names</strong> on any section to include someone who didn\'t chat, and the <strong>Exclude List</strong> to filter out bots or anyone else.</li>'
+      + '<li><strong>Special Thanks</strong> is free text, not tied to chat at all.</li>'
+      + '</ul>'
+      + '<h3>Styling</h3>'
+      + '<p>Pick a style preset then customise colours, fonts, and sizes per section, plus scroll direction/speed, background, avatars, and an optional music bed. Save your own presets and update them anytime.</p>'
+      + '<h3>Session</h3>'
+      + '<p>The chatter list resets automatically the first time SPARK connects to Twitch after launch, or manually via <strong>Reset Session</strong>. Use <strong>Preview (sample names)</strong> to test styling before your chatter list has built up.</p>'
+      + '<h3>OBS Overlay</h3>'
+      + '<p>Copy the <strong>Overlay URL</strong> and add it as a Browser Source in OBS, then click <strong>Play Credits</strong> when you\'re ready to run them (e.g. at the end of stream).</p>'
   }
 };
 
@@ -291,6 +310,7 @@ async function boot(){
   store.songrequest = data.songrequest || { cfg:{}, queue:[] };
   store.chat        = data.chat        || {};
   store.counters    = data.counters    || {};
+  store.credits     = data.credits     || {};
   store.settings    = data.settings    || {};
   store.twitch_tokens = data.twitch_tokens || {};
 
@@ -311,6 +331,7 @@ async function boot(){
   initSongRequest();
   await initChat();
   await initCounters();
+  await initCredits();
 
   // global Twitch event forwarding
   await listen('twitch-status', ev=>{

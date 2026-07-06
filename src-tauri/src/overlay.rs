@@ -16,10 +16,12 @@ const NOWPLAYING_HTML: &str = include_str!("../../dist/overlays/nowplaying.html"
 const SRQUEUE_HTML:    &str = include_str!("../../dist/overlays/srqueue.html");
 const CHAT_HTML:       &str = include_str!("../../dist/overlays/chat.html");
 const COUNTERS_HTML:   &str = include_str!("../../dist/overlays/counters.html");
+const CREDITS_HTML:    &str = include_str!("../../dist/overlays/credits.html");
 const WHEEL_JS:      &str = include_str!("../../dist/js/wheel.js");
 const OVERLAY_JS:    &str = include_str!("../../dist/js/overlay-common.js");
 const BAR_RENDERER:  &str = include_str!("../../dist/js/bar-renderer.js");
 const CHAT_DEFAULTS: &str = include_str!("../../dist/js/chat-defaults.js");
+const CREDITS_DEFAULTS: &str = include_str!("../../dist/js/credits-defaults.js");
 
 pub fn start_server(app: tauri::AppHandle) {
     std::thread::spawn(move || {
@@ -96,10 +98,12 @@ fn handle(app: &tauri::AppHandle, request: tiny_http::Request) {
         "/srqueue"                => { html(request, SRQUEUE_HTML);    return; }
         "/chat"                   => { html(request, CHAT_HTML);      return; }
         "/counters"               => { html(request, COUNTERS_HTML);  return; }
+        "/credits"                => { html(request, CREDITS_HTML);  return; }
         "/js/wheel.js"            => { js(request, WHEEL_JS);         return; }
         "/js/overlay-common.js"   => { js(request, OVERLAY_JS);       return; }
         "/js/bar-renderer.js"     => { js(request, BAR_RENDERER);     return; }
         "/js/chat-defaults.js"    => { js(request, CHAT_DEFAULTS);    return; }
+        "/js/credits-defaults.js" => { js(request, CREDITS_DEFAULTS); return; }
         _ => {}
     }
 
@@ -143,6 +147,7 @@ fn handle(app: &tauri::AppHandle, request: tiny_http::Request) {
                         "srqueue"  => shared.overlay_srqueue.lock().unwrap().clone(),
                         "chat"     => shared.overlay_chat.lock().unwrap().clone(),
                         "counters" => shared.overlay_counters.lock().unwrap().clone(),
+                        "credits"  => shared.overlay_credits.lock().unwrap().clone(),
                         _ => {
                             let vis = shared.tool_visibility.lock().unwrap().clone();
                             serde_json::json!({ "visibility": vis }).to_string()

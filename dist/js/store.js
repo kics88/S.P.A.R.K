@@ -9,6 +9,7 @@ export const store = {
   songrequest: { cfg:{}, queue:[] },
   chat: {},
   counters: {},
+  credits: {},
   settings: {},
   twitch_tokens: {},
   overlayUrls: {},

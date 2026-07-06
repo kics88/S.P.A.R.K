@@ -21,6 +21,7 @@ pub struct AppData {
     #[serde(default)] pub songrequest: Value,
     #[serde(default)] pub chat:     Value,
     #[serde(default)] pub counters: Value,
+    #[serde(default)] pub credits:  Value,
     #[serde(default)] pub settings: Value,
     #[serde(default)] pub twitch_tokens: Value,
 }
@@ -48,6 +49,7 @@ pub struct Shared {
     pub overlay_srqueue:  Mutex<String>,
     pub overlay_chat:     Mutex<String>,
     pub overlay_counters: Mutex<String>,
+    pub overlay_credits:  Mutex<String>,
     // Per-tool master visibility (true = show on master)
     pub tool_visibility: Mutex<std::collections::HashMap<String, bool>>,
     // HTTP server port
@@ -120,6 +122,7 @@ fn load_all_data(shared: State<Shared>) -> Value {
         "songrequest": d.songrequest,
         "chat":     d.chat,
         "counters": d.counters,
+        "credits":  d.credits,
         "settings": d.settings,
         "twitch_tokens": d.twitch_tokens,
     })
@@ -295,6 +298,33 @@ fn counters_overlay_update(shared: State<Shared>, counters: Value) {
     shared.push_overlay_event("counters", json!({"type":"counters_state","counters":counters}));
 }
 
+// ── Credits commands ───────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn save_credits(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().credits = data;
+    do_save(&shared);
+}
+
+// Pushes the current style/settings config plus the latest resolved roster,
+// mirroring chat_overlay_settings — stored as the snapshot so the overlay
+// (and live-preview iframe) gets it immediately on connect (enabling
+// autoplay-on-load), and also broadcast live for already-open overlays.
+#[tauri::command]
+fn credits_overlay_settings(shared: State<Shared>, cfg: Value, roster: Value) {
+    let s = json!({"type":"settings","cfg":cfg,"roster":roster}).to_string();
+    *shared.overlay_credits.lock().unwrap() = s;
+    shared.push_overlay_event("credits", json!({"type":"settings","cfg":cfg,"roster":roster}));
+}
+
+// Triggers the actual scrolling-credits playback. The roster (already
+// resolved into sections/names by the frontend) travels in the event itself —
+// this is ephemeral, just like wheel_overlay_spin / giveaway_overlay_draw.
+#[tauri::command]
+fn credits_overlay_play(shared: State<Shared>, event: Value) {
+    shared.push_overlay_event("credits", event);
+}
+
 // ── Overlay URL ───────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -312,6 +342,7 @@ fn overlay_url(shared: State<Shared>) -> Value {
         "srqueue":    format!("http://localhost:{}/srqueue", port),
         "chat":       format!("http://localhost:{}/chat", port),
         "counters":   format!("http://localhost:{}/counters", port),
+        "credits":    format!("http://localhost:{}/credits", port),
     })
 }
 
@@ -346,6 +377,7 @@ pub fn run() {
                 overlay_srqueue:  Mutex::new("{}".into()),
                 overlay_chat:     Mutex::new("{}".into()),
                 overlay_counters: Mutex::new("[]".into()),
+                overlay_credits:  Mutex::new("{}".into()),
                 tool_visibility:  Mutex::new(std::collections::HashMap::new()),
                 server_port: AtomicU64::new(0),
                 twitch_running: AtomicBool::new(false),
@@ -371,6 +403,7 @@ pub fn run() {
             nowplaying_overlay_event,
             save_chat, chat_overlay_settings, chat_overlay_message, chat_overlay_alert, chat_overlay_emotes,
             save_counters, counters_overlay_update,
+            save_credits, credits_overlay_settings, credits_overlay_play,
             backup_data, restore_data,
             overlay_url,
             twitch::twitch_start_device_auth,
@@ -443,6 +476,7 @@ fn backup_data(shared: State<Shared>) -> Result<Value, String> {
         "songrequest": d.songrequest,
         "chat":     d.chat,
         "counters": d.counters,
+        "credits":  d.credits,
         "settings": d.settings,
         "_spark_backup": true,
         "_version": 1,
@@ -466,9 +500,5 @@ fn restore_data(shared: State<Shared>, data: Value) -> Result<(), String> {
         if let Some(v) = data.get("songrequest") { d.songrequest = v.clone(); }
         if let Some(v) = data.get("chat")     { d.chat     = v.clone(); }
         if let Some(v) = data.get("counters") { d.counters = v.clone(); }
+        if let Some(v) = data.get("credits")  { d.credits  = v.clone(); }
         if let Some(v) = data.get("settings") { d.settings = v.clone(); }
-        path = shared.data_path.lock().unwrap().clone();
-        save_to_disk(&path, &d);
-    }
-    Ok(())
-}

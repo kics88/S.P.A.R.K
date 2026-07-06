@@ -32,12 +32,14 @@ Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch stre
 * **Song Request** - viewers request songs with channel points or `!sr`. Plays through YouTube Music via [Pear Desktop](https://github.com/pear-devs/pear-desktop).
 <img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/93be422b-6426-4a96-a714-5f82f8770c6b" />
 
+* **Credits** - end of stream rolling credits for mods, VIPs, subs, followers and chatters, plus a free text special thanks section. Only viewers who actually chatted get included. Pick a style preset or customize colors, fonts, scroll direction/speed, and section order yourself.
+
 Every tool has its own OBS browser source overlay, plus a master overlay that shows them all in one source. 
 _**NOTE:** The master overlay is buggy and a work in progress_
 
 ## Install
 
-1. Download the latest setup exe from [Releases](https://github.com/D3stiny82/S.P.A.R.K/releases/latest).
+1. Download the latest setup exe from [Releases](https://github.com/kics88/S.P.A.R.K/releases/latest).
 2. Run it. Windows may warn about an unknown publisher, this is normal for a small unsigned app.
 3. The app checks for new versions on startup and shows a banner when one is out.
 
@@ -52,16 +54,4 @@ it set the Auth to None, then hit Connect on the Song Request tab.
 ## Good to know
 
 * Your data is saved at `%APPDATA%\com.spark.app\spark-data.json`.
-* Settings has backup and restore. Twitch login is **NOT** included in backups, you just reconnect.
-* SPARK must be running for overlays to work.
-* Windows only. 
-
-## Building from source
-
-```
-npm install
-npm run build
-```
-
-**NOTE:**Needs Node and Rust installed. The installer ends up in `src-tauri\target\release\bundle`.
-
+* Settings has backup and restore. Twitch login is **NOT*
