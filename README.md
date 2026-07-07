@@ -56,4 +56,4 @@ it set the Auth to None, then hit Connect on the Song Request tab.
 ## Good to know
 
 * Your data is saved at `%APPDATA%\com.spark.app\spark-data.json`.
-* Settings has backup and restore. Twitch login is **NOT*
+* Settings has backup and restore. Twitch login is **NOT** backed up.
