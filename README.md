@@ -14,8 +14,9 @@ Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch stre
 * **Timers** - countdown or stopwatch timers, started manually, by redeem, or by chat command.
 <img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/3d60c022-a721-4fcb-8d3c-6f9014eaff49" />
 
-* **Tasks** - shared to do list for you and your viewers using `!task` commands.
-<img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/29a18c4a-b3eb-4c02-bbef-09b1bc2d9657" />
+* **Tasks** - shared to do list for you and your viewers using `!task` commands as well as a pomodoro timer with its own commands. 
+<img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/9aa019e3-fc39-402f-b2c4-f7dfc2a0f0e7" />
+
 
 * **Goals** - animated progress bars for followers, subs, bits, or custom chat commands.
 <img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/4cb8d09e-6f96-4a48-8852-b4be404f899e" />
