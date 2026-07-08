@@ -1,5 +1,5 @@
 import { store } from './store.js';
-import { $, esc, renderOverlayBar } from './utils.js';
+import { $, esc, renderOverlayBar, slog, slogDump, slogClear } from './utils.js';
 
 const { invoke } = window.__TAURI__.core;
 
@@ -7,8 +7,10 @@ const { invoke } = window.__TAURI__.core;
 const PEAR = 'http://localhost:26538/api/v1';
 
 async function pearGet(path) {
-  const r = await fetch(PEAR + path);
-  if (!r.ok && r.status !== 204) throw new Error(r.status + ' ' + r.statusText);
+  let r;
+  try { r = await fetch(PEAR + path); }
+  catch (e) { slog('pear', 'GET ' + path + ' fetch-fail: ' + (e && e.message)); throw e; }
+  if (!r.ok && r.status !== 204) { slog('pear', 'GET ' + path + ' HTTP ' + r.status); throw new Error(r.status + ' ' + r.statusText); }
   return r.status === 204 ? null : r.json();
 }
 async function pearPost(path, body) {
@@ -17,13 +19,18 @@ async function pearPost(path, body) {
     opts.headers['Content-Type'] = 'application/json';
     opts.body = JSON.stringify(body);
   }
-  const r = await fetch(PEAR + path, opts);
-  if (!r.ok && r.status !== 204) throw new Error(r.status + ' ' + r.statusText);
+  let r;
+  try { r = await fetch(PEAR + path, opts); }
+  catch (e) { slog('pear', 'POST ' + path + ' fetch-fail: ' + (e && e.message)); throw e; }
+  if (!r.ok && r.status !== 204) { slog('pear', 'POST ' + path + ' HTTP ' + r.status); throw new Error(r.status + ' ' + r.statusText); }
+  slog('pear', 'POST ' + path + ' ok (' + r.status + ')');
   return r.status === 204 ? null : r.json().catch(() => null);
 }
 async function pearDelete(path) {
-  const r = await fetch(PEAR + path, { method: 'DELETE' });
-  if (!r.ok && r.status !== 204) throw new Error(r.status + ' ' + r.statusText);
+  let r;
+  try { r = await fetch(PEAR + path, { method: 'DELETE' }); }
+  catch (e) { slog('pear', 'DELETE ' + path + ' fetch-fail: ' + (e && e.message)); throw e; }
+  if (!r.ok && r.status !== 204) { slog('pear', 'DELETE ' + path + ' HTTP ' + r.status); throw new Error(r.status + ' ' + r.statusText); }
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -54,6 +61,8 @@ let localIsPlaying   = false;
 let lastVideoId      = null;
 let pollInterval     = null;
 let interpInterval   = null;
+let watchdogInterval = null;
+let watchdogMissCount = 0;     // consecutive watchdog misses; only re-insert on the 2nd
 let saveTimer        = null;
 let pollErrors       = 0;
 let wsStarted        = false;
@@ -115,20 +124,24 @@ async function tryConnect() {
     $('srConnectedBox').style.display = 'block';
     $('srConnectBtn').style.display   = 'none';
     setPearStatus('on', 'Connected to Pear Desktop');
+    slog('pear', 'connected; nowPlaying=' + (song ? song.videoId + ' "' + (song.title || '') + '"' : 'none'));
     startTimers();
     if (!wsStarted) connectPearWs();
     loadRewards();
     return true;
   } catch (e) {
+    slog('pear', 'connect failed: ' + (e && e.message));
     return false;
   }
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 function startTimers() {
-  if (pollInterval)   clearInterval(pollInterval);
-  if (interpInterval) clearInterval(interpInterval);
-  pollInterval   = setInterval(healthCheck, 10000);
+  if (pollInterval)     clearInterval(pollInterval);
+  if (interpInterval)   clearInterval(interpInterval);
+  if (watchdogInterval) clearInterval(watchdogInterval);
+  pollInterval     = setInterval(healthCheck, 10000);
+  watchdogInterval = setInterval(queueWatchdog, 60000);
   interpInterval = setInterval(() => {
     if (!localIsPlaying || localDuration <= 0) return;
     const elapsed = (Date.now() - lastPollTime) / 1000;
@@ -140,24 +153,27 @@ function connectPearWs() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (pearWs) { const old = pearWs; pearWs = null; try { old.close(1000, 'r'); } catch (e) { } }
   wsStarted = true;
+  slog('ws', 'connecting');
   const sock = new WebSocket('ws://localhost:26538/api/v1/ws');
   pearWs = sock;
   sock.onopen    = () => {
     if (pearWs !== sock) return;
     pollErrors = 0; lastWsMsg = Date.now();
+    slog('ws', 'open');
     setPearStatus('on', 'Connected to Pear Desktop');
   };
   sock.onmessage = (ev) => {
     if (pearWs !== sock) return;
     lastWsMsg = Date.now();
-    try { handleWsMessage(JSON.parse(ev.data)); } catch (e) { }
+    try { handleWsMessage(JSON.parse(ev.data)); } catch (e) { slog('ws', 'msg parse/handle error: ' + (e && e.message)); }
   };
-  sock.onerror   = () => {};
-  sock.onclose   = () => {
+  sock.onerror   = () => { slog('ws', 'error event'); };
+  sock.onclose   = (ev) => {
     if (pearWs !== sock) return; // stale socket from a previous connect
     pearWs = null;
     if (!wsStarted) return;
     pollErrors++;
+    slog('ws', 'closed code=' + (ev && ev.code) + ' pollErrors=' + pollErrors + ' (reconnect in 3s)');
     if (pollErrors >= 3) { setPearStatus('err', 'Lost connection to Pear Desktop'); localIsPlaying = false; }
     // Always reconnect while enabled — even on a clean close (Pear restart etc.)
     if (!reconnectTimer) reconnectTimer = setTimeout(() => { reconnectTimer = null; if (wsStarted && !pearWs) connectPearWs(); }, 3000);
@@ -175,15 +191,89 @@ function stopWs() {
 function queueNextToPear() {
   if (!queue.length) return;
   const vid = queue[0].videoId;
-  if (!vid || vid === lastInsertedId) return;
+  if (!vid || vid === lastInsertedId) { slog('queue', 'insert SKIPPED (dedupe) vid=' + vid + ' lastInserted=' + lastInsertedId); return; }
   lastInsertedId = vid;
+  slog('queue', 'inserting next vid=' + vid + ' qlen=' + queue.length);
   pearPost('/queue', { videoId: vid, insertPosition: 'INSERT_AFTER_CURRENT_VIDEO' })
-    .catch(() => { if (lastInsertedId === vid) lastInsertedId = null; });
+    .then(() => { setTimeout(() => verifyInsert(vid), 1500); })
+    .catch((e) => { slog('queue', 'insert FAILED vid=' + vid + ': ' + (e && e.message)); if (lastInsertedId === vid) lastInsertedId = null; });
+}
+
+// Diagnostic: the 204 from POST /queue says nothing about WHERE the song landed.
+// Twice on 2026-07-07 an inserted song was never reachable (pearQlen>50), so log
+// its actual position relative to Pear's current index after every insert.
+async function verifyInsert(vid) {
+  try {
+    const info = await pearGet('/queue');
+    const { currentIndex, ids } = extractQueueState(info || {});
+    const at = ids.indexOf(vid);
+    if (at === -1) {
+      slog('queue', 'verify: ' + vid + ' NOT in Pear queue after insert (pearQlen=' + ids.length + ' cur=' + currentIndex + ')');
+    } else if (at === currentIndex + 1) {
+      slog('queue', 'verify: ' + vid + ' landed at cur+1 (index ' + at + ') — correct');
+    } else {
+      slog('queue', 'verify: ' + vid + ' landed at index ' + at + ' (cur=' + currentIndex + ' pearQlen=' + ids.length + ') — WRONG SPOT');
+    }
+  } catch (e) { slog('queue', 'verify failed: ' + (e && e.message)); }
+}
+
+// Parse Pear's GET /queue response into { currentIndex, ids[] }.
+// Each item wraps a playlistPanelVideoRenderer (sometimes nested inside a
+// playlistPanelVideoWrapperRenderer); the currently playing item has selected=true.
+function extractQueueState(info) {
+  const items = (info && info.items) || [];
+  let currentIndex = -1;
+  const ids = items.map((item, i) => {
+    const r = item.playlistPanelVideoRenderer
+      || (item.playlistPanelVideoWrapperRenderer
+          && item.playlistPanelVideoWrapperRenderer.primaryRenderer
+          && item.playlistPanelVideoWrapperRenderer.primaryRenderer.playlistPanelVideoRenderer);
+    if (r && r.selected === true) currentIndex = i;
+    return r ? r.videoId : null;
+  });
+  return { currentIndex, ids };
+}
+
+// Every 60s: verify the next SR song actually exists in Pear's upcoming queue.
+// Self-heals silent insert failures, Pear restarts, or a stuck dedupe.
+async function queueWatchdog() {
+  try {
+    if (!queue.length) { watchdogMissCount = 0; return; }
+    const vid = queue[0].videoId;
+    if (!vid) return;
+    const info = await pearGet('/queue');
+    const { currentIndex, ids } = extractQueueState(info || {});
+    if (ids[currentIndex] === vid) { watchdogMissCount = 0; return; }          // it's playing right now
+    if (ids.slice(currentIndex + 1).includes(vid)) { watchdogMissCount = 0; return; } // it's queued — all good
+    // Present but BEHIND the current index: either it already played or Pear's
+    // selected pointer is stale. Re-inserting in this state is what caused the
+    // backwards jumps / replays on 2026-07-07 — log it and leave it alone.
+    const behindAt = ids.indexOf(vid);
+    if (behindAt !== -1) {
+      slog('watchdog', vid + ' present but BEHIND cur (at=' + behindAt + ' cur=' + currentIndex + ' pearQlen=' + ids.length + ') — not re-inserting');
+      watchdogMissCount = 0;
+      return;
+    }
+    // Genuinely missing: require two consecutive misses (2 min) before acting,
+    // so a transient/stale GET /queue snapshot can't trigger a bogus re-insert.
+    watchdogMissCount++;
+    if (watchdogMissCount < 2) {
+      slog('watchdog', vid + ' missing from Pear queue (1st strike, pearQlen=' + ids.length + ' cur=' + currentIndex + ') — rechecking next cycle');
+      return;
+    }
+    slog('watchdog', 'next SR song ' + vid + ' MISSING from Pear queue twice (pearQlen=' + ids.length + ' cur=' + currentIndex + ' lastInserted=' + lastInsertedId + ') — re-inserting');
+    watchdogMissCount = 0;
+    lastInsertedId = null;
+    queueNextToPear();
+  } catch (e) {
+    slog('watchdog', 'check failed: ' + (e && e.message));
+  }
 }
 
 // Shared by the WS VIDEO_CHANGED handler and the health-check watchdog.
 // Returns true if the new video was our queue[0] (an SR queue item).
 function advanceQueue(vid) {
+  slog('queue', 'advance vid=' + vid + ' q0=' + (queue[0] ? queue[0].videoId : 'none') + ' qlen=' + queue.length + ' lastInserted=' + lastInsertedId);
   let wasQueueItem = false;
   if (vid && queue.length > 0 && queue[0].videoId === vid) {
     wasQueueItem = true;
@@ -213,11 +303,13 @@ function handleWsMessage(msg) {
     const vid = currentSong?.videoId || null;
 
     if (type === 'VIDEO_CHANGED' && prevVideoId !== vid) {
+      slog('ws', 'VIDEO_CHANGED ' + prevVideoId + ' -> ' + vid + ' "' + (currentSong && currentSong.title || '') + '"');
       const wasQueueItem = advanceQueue(vid);
       // Duration check only for SR queue items
       if (wasQueueItem && cfg.maxDurationSeconds > 0 && localDuration > cfg.maxDurationSeconds) {
         const durMins = Math.floor(localDuration / 60);
         const maxMins = Math.floor(cfg.maxDurationSeconds / 60);
+        slog('queue', 'auto-skip too long: ' + localDuration + 's > ' + cfg.maxDurationSeconds + 's');
         sendChatMsg(cfg.chatMsgTooLong, { song: currentSong?.title || '', duration: durMins, maxduration: maxMins });
         pearPost('/next').catch(() => {});
       }
@@ -258,6 +350,7 @@ async function healthCheck() {
     if (vid && vid !== lastVideoId) {
       // REST sees a different song than our WS state — the WS missed a
       // VIDEO_CHANGED. Resync everything and run the normal advance logic.
+      slog('health', 'RESYNC: REST vid=' + vid + ' != lastVideoId=' + lastVideoId + ' wsAge=' + (Date.now() - lastWsMsg) + 'ms');
       currentSong    = song;
       localPosition  = song.elapsedSeconds || 0;
       localDuration  = song.songDuration   || 0;
@@ -273,10 +366,12 @@ async function healthCheck() {
     } else if (song && wsStarted && Date.now() - lastWsMsg > 30000 && !song.isPaused) {
       // Song playing but WS silent for 30s (it normally streams position
       // updates constantly) — half-open socket, rebuild it
+      slog('health', 'ws silent ' + (Date.now() - lastWsMsg) + 'ms while playing — rebuilding socket');
       connectPearWs();
     }
   } catch (e) {
     pollErrors++;
+    slog('health', 'poll FAILED #' + pollErrors + ': ' + (e && e.message));
     if (pollErrors >= 3) { setPearStatus('err', 'Lost connection to Pear Desktop'); localIsPlaying = false; }
   }
 }
@@ -307,14 +402,16 @@ async function fetchQueueTitles() {
 }
 
 async function requestSong(url, requester, userId, isHost, isRedeem) {
+  slog('sr', 'request "' + url + '" by ' + requester + (isRedeem ? ' [redeem]' : '') + (isHost ? ' [host]' : ''));
   let videoId = extractVideoId(url);
   if (!videoId) videoId = await searchVideoId(url.trim());
-  if (!videoId) { sendChatMsg(cfg.chatMsgBadUrl, { username: requester }); return; }
-  if (queue.length >= cfg.maxQueueSize) return;
+  if (!videoId) { slog('sr', 'REJECTED: no videoId resolved'); sendChatMsg(cfg.chatMsgBadUrl, { username: requester }); return; }
+  if (queue.length >= cfg.maxQueueSize) { slog('sr', 'REJECTED: queue full (' + queue.length + '/' + cfg.maxQueueSize + ')'); return; }
 
   if (!isHost && cfg.maxPerUser > 0 && userId) {
     const userCount = queue.filter(q => q.userId === userId).length;
     if (userCount >= cfg.maxPerUser) {
+      slog('sr', 'REJECTED: per-user limit (' + userCount + '/' + cfg.maxPerUser + ')');
       sendChatMsg(cfg.chatMsgPerUser, { username: requester, count: userCount, max: cfg.maxPerUser });
       return;
     }
@@ -325,6 +422,7 @@ async function requestSong(url, requester, userId, isHost, isRedeem) {
     const elapsed = (Date.now() - last) / 1000;
     if (elapsed < cfg.srCooldownSeconds) {
       const remaining = Math.ceil((cfg.srCooldownSeconds - elapsed) / 60);
+      slog('sr', 'REJECTED: cooldown, ' + Math.round(cfg.srCooldownSeconds - elapsed) + 's left');
       sendChatMsg(cfg.chatMsgCooldown, { username: requester, time: remaining });
       return;
     }
@@ -344,6 +442,7 @@ async function requestSong(url, requester, userId, isHost, isRedeem) {
   });
   renderQueue();
   persist();
+  slog('sr', 'ADDED vid=' + videoId + ' qlen=' + queue.length + ' wasEmpty=' + wasEmpty + ' nowPlaying=' + (currentSong ? currentSong.videoId : 'none'));
 
   if (wasEmpty) {
     try {
@@ -351,6 +450,7 @@ async function requestSong(url, requester, userId, isHost, isRedeem) {
       await pearPost('/queue', { videoId, insertPosition: 'INSERT_AFTER_CURRENT_VIDEO' });
       if (!currentSong) await pearPost('/next');
     } catch (e) {
+      slog('sr', 'initial insert FAILED vid=' + videoId + ': ' + (e && e.message));
       if (lastInsertedId === videoId) lastInsertedId = null;
     }
   }
@@ -368,17 +468,20 @@ function extractVideoId(url) {
 }
 
 async function searchVideoId(query) {
-  // Try Pear Desktop search first
+  // Try Pear Desktop search first. NOTE: 'params' must be a string or absent —
+  // Pear's schema rejects null with HTTP 400, so never send params: null.
   try {
-    const result = await pearPost('/search', { query, params: null });
+    const result = await pearPost('/search', { query });
     if (result) {
       const str = JSON.stringify(result);
-      const m = str.match(/"(?:videoId|video_id|id)"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
-      if (m) return m[1];
+      // Match "videoId" only — generic "id" keys can be channel/playlist junk.
+      const m = str.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+      if (m) { slog('sr', 'search resolved via pear: ' + m[1]); return m[1]; }
       const m2 = str.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
-      if (m2) return m2[1];
+      if (m2) { slog('sr', 'search resolved via pear (url): ' + m2[1]); return m2[1]; }
     }
-  } catch (e) {}
+    slog('sr', 'pear search returned no match');
+  } catch (e) { slog('sr', 'pear search failed: ' + (e && e.message)); }
   // Fallback: public YouTube search APIs, tried in order — individual
   // Piped/Invidious instances come and go, so don't depend on just one.
   const FALLBACK_APIS = [
@@ -392,16 +495,19 @@ async function searchVideoId(query) {
       if (!r.ok) continue;
       const str = JSON.stringify(await r.json());
       const m = str.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/) || str.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
-      if (m) return m[1];
+      if (m) { slog('sr', 'search resolved via fallback API: ' + m[1]); return m[1]; }
     } catch (e) {}
   }
+  slog('sr', 'search FAILED (all sources) for: ' + query);
   return null;
 }
 
 // ── Twitch ────────────────────────────────────────────────────────────────────
 window.addEventListener('spark-redeem', e => {
   const d = e.detail;
-  if (!cfg.anyRedeem && d.reward_id !== cfg.rewardId) return;
+  const match = cfg.anyRedeem || d.reward_id === cfg.rewardId;
+  slog('twitch', 'redeem by ' + d.user_name + ' reward=' + d.reward_id + ' match=' + match + ' hasInput=' + !!d.user_input);
+  if (!match) return;
   if (d.user_input) requestSong(d.user_input, d.user_name, d.user_id, false, true);
 });
 async function srCmdAllowed(d) {
@@ -422,7 +528,9 @@ window.addEventListener('spark-chat', async e => {
   if (!cfg.allowSrCommand) return;
   const msg = (d.message || '').trim();
   if (!msg.toLowerCase().startsWith('!sr ')) return;
-  if (!await srCmdAllowed(d)) return;
+  const allowed = await srCmdAllowed(d);
+  slog('twitch', '!sr from ' + (d.display || d.username) + ' allowed=' + allowed);
+  if (!allowed) return;
   requestSong(msg.slice(4).trim(), d.display || d.username, d.user_id, d.is_broadcaster);
 });
 
@@ -538,8 +646,42 @@ function renderQueue() {
     + '</div>'
   ).join('');
   el.querySelectorAll('button[data-qid]').forEach(btn => {
-    btn.addEventListener('click', () => { queue = queue.filter(q => q.id !== btn.dataset.qid); renderQueue(); persist(); });
+    btn.addEventListener('click', () => {
+      const removed = queue.find(q => q.id === btn.dataset.qid);
+      queue = queue.filter(q => q.id !== btn.dataset.qid);
+      renderQueue(); persist();
+      slog('queue', 'user removed vid=' + (removed && removed.videoId) + ' lastInserted=' + lastInsertedId);
+      // If this song was already pushed into Pear's queue, pull it back out
+      // and immediately line up the new front item. Fire-and-forget — a
+      // failure just means Pear plays it anyway (old behaviour).
+      if (removed && removed.videoId && removed.videoId === lastInsertedId) {
+        removeFromPearQueue(removed.videoId);
+      }
+    });
   });
+}
+
+// Remove a videoId from Pear's upcoming queue (searches after the current
+// song only, so it can't touch the playing track), then queue the next SR song.
+async function removeFromPearQueue(vid) {
+  try {
+    const info = await pearGet('/queue');
+    const { currentIndex, ids } = extractQueueState(info || {});
+    let idx = -1;
+    for (let i = currentIndex + 1; i < ids.length; i++) {
+      if (ids[i] === vid) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      await pearDelete('/queue/' + idx);
+      slog('queue', 'removed vid=' + vid + ' from Pear queue at index ' + idx);
+    } else {
+      slog('queue', 'vid=' + vid + ' not found in Pear upcoming queue (nothing to remove)');
+    }
+  } catch (e) {
+    slog('queue', 'Pear removal failed for vid=' + vid + ': ' + (e && e.message));
+  }
+  if (lastInsertedId === vid) lastInsertedId = null;
+  queueNextToPear();
 }
 
 async function loadRewards() {
@@ -616,6 +758,12 @@ function buildLeft() {
   +   '<div class="row mt"><input type="text" id="srManualUrl" placeholder="YouTube URL or video ID" style="flex:1"><button class="btn-sm btn-gold" id="srManualAdd">Queue</button></div>'
   +   '<button class="btn-sm btn-ghost full mt" id="srClearQueue">Clear entire queue</button>'
   + '</div>'
+  + '<div class="card">'
+  +   '<h2>Diagnostics</h2>'
+  +   '<div class="hint">Debug log for song requests. Kept in memory + saved every few seconds, survives an app restart.</div>'
+  +   '<div class="row mt"><button class="btn-sm btn-gold" id="srCopyLogs">Copy Logs</button><button class="btn-sm btn-ghost" id="srClearLogs">Clear Logs</button></div>'
+  +   '<textarea id="srLogBox" readonly style="display:none;width:100%;height:180px;margin-top:8px;font-size:.68rem;font-family:monospace;background:rgba(0,0,0,.35);color:#cfc8f0;border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical"></textarea>'
+  + '</div>'
   + '<div class="card" style="margin-bottom:60px">'
   +   '<h2>Queue</h2>'
   +   '<div id="srQueue"><div class="hint">Queue is empty.</div></div>'
@@ -627,9 +775,11 @@ function buildLeft() {
     if (!ok) setPearStatus('err', 'Cannot reach Pear Desktop. Is it running with API Server enabled (auth: None)?');
   });
   $('srDisconnectBtn').addEventListener('click', () => {
-    if (pollInterval)   { clearInterval(pollInterval);   pollInterval   = null; }
-    if (interpInterval) { clearInterval(interpInterval); interpInterval = null; }
+    if (pollInterval)     { clearInterval(pollInterval);     pollInterval     = null; }
+    if (interpInterval)   { clearInterval(interpInterval);   interpInterval   = null; }
+    if (watchdogInterval) { clearInterval(watchdogInterval); watchdogInterval = null; }
     stopWs(); currentSong = null;
+    slog('pear', 'user disconnected');
     $('srConnectedBox').style.display = 'none'; $('srConnectBtn').style.display = 'block';
     setPearStatus('', 'Not connected');
   });
@@ -686,6 +836,25 @@ function buildLeft() {
     }
   });
 
+  $('srCopyLogs').addEventListener('click', () => {
+    try {
+      const txt = slogDump();
+      const box = $('srLogBox');
+      box.style.display = 'block'; box.value = txt;
+      const btn = $('srCopyLogs'), o = btn.textContent;
+      navigator.clipboard.writeText(txt)
+        .then(() => { btn.textContent = 'Copied!'; })
+        .catch(() => { box.select(); btn.textContent = 'Select & copy from box'; });
+      setTimeout(() => { btn.textContent = o; }, 1800);
+    } catch (e) {}
+  });
+  $('srClearLogs').addEventListener('click', () => {
+    try {
+      slogClear(); slog('log', 'logs cleared by user');
+      const box = $('srLogBox'); if (box) { box.value = ''; box.style.display = 'none'; }
+    } catch (e) {}
+  });
+
   renderOverlayBar('srOverlayMode', 'srOverlayUrl', 'srCopyUrl', 'nowplaying', store.overlayUrls);
   renderQueue();
 }
@@ -705,6 +874,7 @@ export function initSongRequest() {
   const d = store.songrequest || {};
   if (d.cfg)   Object.assign(cfg, d.cfg);
   if (d.queue) queue = d.queue;
+  slog('boot', 'songrequest init qlen=' + queue.length + ' reward=' + (cfg.rewardId || 'none') + ' anyRedeem=' + cfg.anyRedeem + ' allowCmd=' + cfg.allowSrCommand + ' who=' + cfg.srCmdWho);
 
   buildLeft();
   buildRight();

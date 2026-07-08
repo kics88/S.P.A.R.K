@@ -54,4 +54,16 @@ it set the Auth to None, then hit Connect on the Song Request tab.
 ## Good to know
 
 * Your data is saved at `%APPDATA%\com.spark.app\spark-data.json`.
-* Settings has backup and restore. Twitch login is **NOT*
+* Settings has backup and restore. Twitch login is **NOT** included in backups, you just reconnect.
+* SPARK must be running for overlays to work.
+* Windows only. 
+
+## Building from source
+
+```
+npm install
+npm run build
+```
+
+**NOTE:**Needs Node and Rust installed. The installer ends up in `src-tauri\target\release\bundle`.
+

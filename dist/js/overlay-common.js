@@ -25,16 +25,12 @@ async function poll(){
       handlers['_snapshot'](data.snapshot);
     }
     (data.events||[]).forEach(ev=>{
-      if(ev._id && ev._id > since) since = ev._id;
+      // Long-poll is at-least-once: if a response is lost client-side after the
+      // server sent it, the retry re-delivers the same events. Skip anything we
+      // already processed so one-shot events (wheel spins etc.) never replay.
+      if(ev._id){
+        if(ev._id <= since) return;
+        since = ev._id;
+      }
       const h = handlers[ev.type];
-      if(h) h(ev);
-    });
-    if((!data.events || data.events.length === 0) && typeof data.latest === 'number'){
-      since = Math.max(since, data.latest);
-    }
-    setTimeout(poll, 0);
-  }catch(e){
-    console.warn('overlay poll error:', e);
-    setTimeout(poll, 800);
-  }
-}
+   

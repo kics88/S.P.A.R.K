@@ -44,6 +44,7 @@ pub struct Shared {
     pub overlay_giveaway: Mutex<String>,
     pub overlay_timers:   Mutex<String>,
     pub overlay_tasks:    Mutex<String>,
+    pub overlay_pomodoro: Mutex<String>,
     pub overlay_goals:    Mutex<String>,
     pub overlay_checkins: Mutex<String>,
     pub overlay_srqueue:  Mutex<String>,
@@ -59,6 +60,13 @@ pub struct Shared {
     pub twitch_stop:    Arc<AtomicBool>,
     // Chat listener stop signal
     pub chat_stop: Arc<AtomicBool>,
+    // Thread generation counters. Each (re)connect bumps its counter; a running
+    // listener thread exits as soon as it sees a generation newer than its own.
+    // This replaces the old stop-flag handshake, which could race: an old thread
+    // blocked in socket.read() could miss the brief stop=true window and survive,
+    // leaving two threads emitting every event twice.
+    pub twitch_gen: Arc<AtomicU64>,
+    pub chat_gen:   Arc<AtomicU64>,
 }
 
 impl Shared {
@@ -231,6 +239,15 @@ fn tasks_overlay_update(shared: State<Shared>, state: Value) {
     shared.push_overlay_event("tasks", json!({"type":"tasks_state","state":state}));
 }
 
+// ── Pomodoro commands ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+fn pomodoro_overlay_update(shared: State<Shared>, state: Value) {
+    let s = state.to_string();
+    *shared.overlay_pomodoro.lock().unwrap() = s;
+    shared.push_overlay_event("pomodoro", json!({"type":"pomodoro_state","state":state}));
+}
+
 // ── Goals commands ────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -306,6 +323,15 @@ fn save_credits(shared: State<Shared>, data: Value) {
     do_save(&shared);
 }
 
+// Generic app-settings save (global ignore list etc.). Careful: `settings`
+// also carries ytm_token and similar — callers must pass the FULL settings
+// object (store.settings), never a partial one.
+#[tauri::command]
+fn save_app_settings(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().settings = data;
+    do_save(&shared);
+}
+
 // Pushes the current style/settings config plus the latest resolved roster,
 // mirroring chat_overlay_settings — stored as the snapshot so the overlay
 // (and live-preview iframe) gets it immediately on connect (enabling
@@ -336,6 +362,7 @@ fn overlay_url(shared: State<Shared>) -> Value {
         "giveaway": format!("http://localhost:{}/giveaway", port),
         "timers":   format!("http://localhost:{}/timers", port),
         "tasks":    format!("http://localhost:{}/tasks", port),
+        "pomodoro": format!("http://localhost:{}/pomodoro", port),
         "goals":    format!("http://localhost:{}/goals", port),
         "checkins":   format!("http://localhost:{}/checkins", port),
         "nowplaying": format!("http://localhost:{}/nowplaying", port),
@@ -372,6 +399,7 @@ pub fn run() {
                 overlay_giveaway: Mutex::new("{}".into()),
                 overlay_timers:   Mutex::new("[]".into()),
                 overlay_tasks:    Mutex::new("{}".into()),
+                overlay_pomodoro: Mutex::new("{}".into()),
                 overlay_goals:    Mutex::new("[]".into()),
                 overlay_checkins: Mutex::new("{}".into()),
                 overlay_srqueue:  Mutex::new("{}".into()),
@@ -383,6 +411,8 @@ pub fn run() {
                 twitch_running: AtomicBool::new(false),
                 twitch_stop: stop,
                 chat_stop: cstop,
+                twitch_gen: Arc::new(AtomicU64::new(0)),
+                chat_gen:   Arc::new(AtomicU64::new(0)),
             };
             app.manage(shared);
             overlay::start_server(app.handle().clone());
@@ -395,7 +425,7 @@ pub fn run() {
             save_wheel, wheel_overlay_update, wheel_overlay_spin,
             save_giveaway, giveaway_overlay_update, giveaway_overlay_draw,
             save_timers, timers_overlay_update,
-            save_tasks, tasks_overlay_update,
+            save_tasks, tasks_overlay_update, pomodoro_overlay_update,
             save_goals, goals_overlay_update,
             save_checkins, checkins_overlay_event,
             save_songrequest,
@@ -404,6 +434,7 @@ pub fn run() {
             save_chat, chat_overlay_settings, chat_overlay_message, chat_overlay_alert, chat_overlay_emotes,
             save_counters, counters_overlay_update,
             save_credits, credits_overlay_settings, credits_overlay_play,
+            save_app_settings,
             backup_data, restore_data,
             overlay_url,
             twitch::twitch_start_device_auth,
@@ -498,7 +529,4 @@ fn restore_data(shared: State<Shared>, data: Value) -> Result<(), String> {
         if let Some(v) = data.get("goals")    { d.goals    = v.clone(); }
         if let Some(v) = data.get("checkins")    { d.checkins    = v.clone(); }
         if let Some(v) = data.get("songrequest") { d.songrequest = v.clone(); }
-        if let Some(v) = data.get("chat")     { d.chat     = v.clone(); }
-        if let Some(v) = data.get("counters") { d.counters = v.clone(); }
-        if let Some(v) = data.get("credits")  { d.credits  = v.clone(); }
-        if let Some(v) = data.get("settings") { d.settings = v.clone(); }
+        if let Some(

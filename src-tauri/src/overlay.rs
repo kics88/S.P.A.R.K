@@ -10,6 +10,7 @@ const WHEEL_HTML:    &str = include_str!("../../dist/overlays/wheel.html");
 const GIVEAWAY_HTML: &str = include_str!("../../dist/overlays/giveaway.html");
 const TIMERS_HTML:   &str = include_str!("../../dist/overlays/timers.html");
 const TASKS_HTML:    &str = include_str!("../../dist/overlays/tasks.html");
+const POMODORO_HTML: &str = include_str!("../../dist/overlays/pomodoro.html");
 const GOALS_HTML:    &str = include_str!("../../dist/overlays/goals.html");
 const CHECKINS_HTML:   &str = include_str!("../../dist/overlays/checkins.html");
 const NOWPLAYING_HTML: &str = include_str!("../../dist/overlays/nowplaying.html");
@@ -92,6 +93,7 @@ fn handle(app: &tauri::AppHandle, request: tiny_http::Request) {
         "/giveaway"               => { html(request, GIVEAWAY_HTML);  return; }
         "/timers"                 => { html(request, TIMERS_HTML);    return; }
         "/tasks"                  => { html(request, TASKS_HTML);     return; }
+        "/pomodoro"               => { html(request, POMODORO_HTML);  return; }
         "/goals"                  => { html(request, GOALS_HTML);     return; }
         "/checkins"               => { html(request, CHECKINS_HTML);  return; }
         "/nowplaying"             => { html(request, NOWPLAYING_HTML); return; }
@@ -142,6 +144,7 @@ fn handle(app: &tauri::AppHandle, request: tiny_http::Request) {
                         "giveaway" => shared.overlay_giveaway.lock().unwrap().clone(),
                         "timers"   => shared.overlay_timers.lock().unwrap().clone(),
                         "tasks"    => shared.overlay_tasks.lock().unwrap().clone(),
+                        "pomodoro" => shared.overlay_pomodoro.lock().unwrap().clone(),
                         "goals"    => shared.overlay_goals.lock().unwrap().clone(),
                         "checkins" => shared.overlay_checkins.lock().unwrap().clone(),
                         "srqueue"  => shared.overlay_srqueue.lock().unwrap().clone(),

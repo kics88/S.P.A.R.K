@@ -35,8 +35,16 @@ export function renderOverlayBar(modeSelId, urlInputId, copyBtnId, tool, urls){
   const sel = $(modeSelId), inp = $(urlInputId), btn = $(copyBtnId);
   if(!sel||!inp||!btn) return;
   const { invoke } = window.__TAURI__.core;
+  // Restore last choice (default: unique — master is opt-in)
+  const memKey = 'spark_overlay_mode_' + tool;
+  try{
+    const saved = localStorage.getItem(memKey);
+    if(saved === 'master' || saved === 'unique') sel.value = saved;
+    else sel.value = 'unique';
+  }catch(e){ sel.value = 'unique'; }
   function update(){
     inp.value = overlayUrlForMode(sel.value, tool, urls);
+    try{ localStorage.setItem(memKey, sel.value); }catch(e){}
     // tell master overlay whether to show this tool
     invoke('set_tool_visibility', { tool, visible: sel.value === 'master' });
   }
@@ -44,6 +52,56 @@ export function renderOverlayBar(modeSelId, urlInputId, copyBtnId, tool, urls){
   btn.addEventListener('click', ()=>navigator.clipboard.writeText(inp.value));
   update(); // run once on init to set initial visibility
 }
+
+// ── Safe diagnostic logging ───────────────────────────────────────────────────
+// In-memory ring buffer mirrored to localStorage. Every function is fully
+// wrapped in try/catch and 100% synchronous — it can never throw, block, or
+// break anything else. If localStorage is unavailable, logging silently
+// degrades to memory-only.
+const LOG_KEY = 'spark_sr_logs';
+const LOG_MAX = 2000;
+let _logBuf = [];
+let _logDirty = false;
+try {
+  // Preserve the previous session's log so a crash/restart doesn't lose it
+  const prev = localStorage.getItem(LOG_KEY);
+  if (prev) localStorage.setItem(LOG_KEY + '_prev', prev);
+  localStorage.removeItem(LOG_KEY);
+} catch (e) {}
+try {
+  setInterval(() => {
+    if (!_logDirty) return;
+    _logDirty = false;
+    try { localStorage.setItem(LOG_KEY, _logBuf.join('\n')); } catch (e) {}
+  }, 3000);
+} catch (e) {}
+export function slog(tag, msg) {
+  try {
+    const t = new Date();
+    const ts = t.toTimeString().slice(0, 8) + '.' + String(t.getMilliseconds()).padStart(3, '0');
+    let m = msg;
+    if (typeof m !== 'string') { try { m = JSON.stringify(m); } catch (e) { m = String(m); } }
+    _logBuf.push(ts + ' [' + tag + '] ' + m);
+    if (_logBuf.length > LOG_MAX) _logBuf.splice(0, _logBuf.length - LOG_MAX);
+    _logDirty = true;
+  } catch (e) {}
+}
+export function slogDump() {
+  try {
+    let prev = '';
+    try { prev = localStorage.getItem(LOG_KEY + '_prev') || ''; } catch (e) {}
+    return (prev ? '===== PREVIOUS SESSION =====\n' + prev + '\n\n' : '')
+      + '===== CURRENT SESSION =====\n' + _logBuf.join('\n');
+  } catch (e) { return 'log dump failed'; }
+}
+export function slogClear() {
+  try {
+    _logBuf = []; _logDirty = false;
+    localStorage.removeItem(LOG_KEY);
+    localStorage.removeItem(LOG_KEY + '_prev');
+  } catch (e) {}
+}
+try { slog('log', 'session start ' + new Date().toString()); } catch (e) {}
 
 // Drag-to-reorder (mouse-based, works in Tauri WebView)
 let dragSrc = null, dragGhost = null, dragOffY = 0;

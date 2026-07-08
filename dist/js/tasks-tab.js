@@ -1,5 +1,6 @@
 import { store } from './store.js';
-import { $, esc, renderOverlayBar } from './utils.js';
+import { $, esc, flash, renderOverlayBar } from './utils.js';
+import { initPomodoro, renderPomodoroUI, pomoData, pomoTasksChanged } from './pomodoro.js';
 
 const { invoke } = window.__TAURI__.core;
 
@@ -75,7 +76,7 @@ function hostLabel(){
 let saveTimer_k = null;
 function persist(){
   clearTimeout(saveTimer_k);
-  saveTimer_k = setTimeout(()=>{ invoke('save_tasks',{data:{cfg,tasks,nextNum}}); },300);
+  saveTimer_k = setTimeout(()=>{ invoke('save_tasks',{data:{cfg,tasks,nextNum,pomo:pomoData()}}); },300);
   pushOverlay();
 }
 function pushOverlay(){
@@ -207,6 +208,7 @@ function renderTaskList(){
   });
 
   updateRightPreview();
+  pomoTasksChanged();
 }
 
 function updateRightPreview(){
@@ -311,6 +313,7 @@ function wirePosFields(prefix, posObj){
 function buildLeft(){
   const el=$('tasksLeft'); if(!el) return;
   el.innerHTML=`
+  <div id="pomoCard"></div>
   <div class="card">
     <h2>Controls</h2>
     <div class="row mb">
@@ -407,6 +410,16 @@ function buildLeft(){
   $('tkCompletedStyle').addEventListener('change', e=>{ cfg.overlay.completedStyle=e.target.value; persist(); });
 
   renderOverlayBar('tkOverlayMode','tkOverlayUrl','tkCopyUrl','tasks',store.overlayUrls);
+
+  // Pomodoro overlay URL (standalone route — not part of master)
+  const pu=$('pomoOverlayUrl');
+  if(pu){
+    pu.value=store.overlayUrls.pomodoro||'';
+    const pb=$('pomoCopyUrl');
+    if(pb) pb.addEventListener('click',()=>{ navigator.clipboard.writeText(pu.value); flash(pb,'Copied ✓'); });
+  }
+
+  renderPomodoroUI(); // pomoCard was just recreated
 }
 
 // Attached exactly once (buildLeft() re-runs on visual-setting changes and
@@ -439,6 +452,20 @@ export async function initTasks(){
   if(d.cfg) deepMerge(cfg, d.cfg);
   if(d.tasks) tasks=d.tasks;
   renumber(); // normalize any gaps from data saved before renumbering existed
+
+  initPomodoro(d.pomo||null, {
+    persist,
+    getHostTasks: ()=>tasks.filter(t=>t.isHost&&!t.done),
+    completeTask: (id)=>{
+      const t=tasks.find(t=>t.id===id&&!t.done);
+      if(!t) return;
+      t.done=true; t.doneAt=Date.now();
+      renderTaskList(); persist();
+      if(cfg.completedFade){
+        setTimeout(()=>{ tasks=tasks.filter(x=>x.id!==t.id); renumber(); renderTaskList(); persist(); }, cfg.fadeSecs*1000);
+      }
+    },
+  });
 
   buildLeft();
   attachChatListener();

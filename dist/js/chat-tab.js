@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, isIgnored, addIgnore } from './store.js';
 import { $, esc, renderOverlayBar } from './utils.js';
 import {
   defaultCfg, deepMerge, applyPreset, PRESETS, GOOGLE_FONTS,
@@ -42,6 +42,17 @@ function pushNow(){
 }
 
 function markCustom(){
+  // If a saved (★) custom preset is active, auto-write the change back into it
+  // and keep it selected. Built-in presets keep the old behaviour: any tweak
+  // flips the picker to "Custom".
+  if(cfg.preset !== 'Custom' && cfg.customPresets && cfg.customPresets[cfg.preset]){
+    cfg.customPresets[cfg.preset] = {
+      layout: JSON.parse(JSON.stringify(cfg.layout)),
+      roles:  JSON.parse(JSON.stringify(cfg.roles)),
+      alerts: JSON.parse(JSON.stringify(cfg.alerts)),
+    };
+    return;
+  }
   if(cfg.preset !== 'Custom'){
     cfg.preset = 'Custom';
     document.querySelectorAll('.chPresetBtn').forEach(b=>{
@@ -114,6 +125,7 @@ function wirePresetPicker(){
 function saveCustomPreset(){
   const name = (prompt('Name this preset:')||'').trim();
   if(!name) return;
+  if(name === 'Custom' || PRESETS[name]){ alert(`"${name}" is a built-in preset name — pick a different one.`); return; }
   if(!cfg.customPresets) cfg.customPresets = {};
   cfg.customPresets[name] = {
     layout: JSON.parse(JSON.stringify(cfg.layout)),
@@ -143,22 +155,8 @@ function deleteCustomPreset(name){
   buildLeft();
 }
 
-// ── Ignore list ───────────────────────────────────────────────────────────────
-function ignoreListHtml(){
-  return `<div class="card">
-    <h2>Ignore List <span class="tag">bot filter</span></h2>
-    <div class="hint">One username per line. Ignored viewers never appear in the chat overlay (great for bots like Nightbot/StreamElements).</div>
-    <textarea id="chIgnoreList" style="height:80px">${esc((cfg.ignoreList||[]).join('\n'))}</textarea>
-    <button class="btn-sm mt" id="chIgnoreSave">Save Ignore List</button>
-  </div>`;
-}
-function wireIgnoreList(){
-  on('chIgnoreSave','click', ()=>{
-    cfg.ignoreList = $('chIgnoreList').value.split('\n').map(lower).filter(Boolean);
-    persist();
-    flashBtn($('chIgnoreSave'),'Saved!');
-  });
-}
+// Ignore list moved to Settings (global, shared by all tools). The quick-
+// Ignore buttons in the Live Chat log below write to that global list.
 
 // ── Layout & background ────────────────────────────────────────────────────
 function layoutSectionHtml(){
@@ -208,19 +206,19 @@ function wireLayoutSection(){
   on('lfBgColor2','input', e=>{ l.bgColor2=e.target.value; markCustom(); persist(); });
   on('lfBgOpacity','input', e=>{ l.bgOpacity=parseFloat(e.target.value); markCustom(); persist(); });
   on('lfBgImage','input', e=>{ l.bgImage=e.target.value; markCustom(); persist(); });
-  on('lfDir','change', e=>{ l.direction=e.target.value; persist(); });
-  on('lfAlign','change', e=>{ l.align=e.target.value; persist(); });
-  on('lfMax','input', e=>{ l.maxMessages=parseInt(e.target.value)||20; persist(); });
-  on('lfWidth','input', e=>{ l.width=parseInt(e.target.value)||460; persist(); });
-  on('lfGap','input', e=>{ l.gap=parseInt(e.target.value)||8; persist(); });
-  on('lfPad','input', e=>{ l.padding=parseInt(e.target.value)||10; persist(); });
-  on('lfFade','change', e=>{ l.autoFade=e.target.checked; persist(); });
-  on('lfFadeSecs','input', e=>{ l.fadeAfter=parseInt(e.target.value)||20; persist(); });
+  on('lfDir','change', e=>{ l.direction=e.target.value; markCustom(); persist(); });
+  on('lfAlign','change', e=>{ l.align=e.target.value; markCustom(); persist(); });
+  on('lfMax','input', e=>{ l.maxMessages=parseInt(e.target.value)||20; markCustom(); persist(); });
+  on('lfWidth','input', e=>{ l.width=parseInt(e.target.value)||460; markCustom(); persist(); });
+  on('lfGap','input', e=>{ l.gap=parseInt(e.target.value)||8; markCustom(); persist(); });
+  on('lfPad','input', e=>{ l.padding=parseInt(e.target.value)||10; markCustom(); persist(); });
+  on('lfFade','change', e=>{ l.autoFade=e.target.checked; markCustom(); persist(); });
+  on('lfFadeSecs','input', e=>{ l.fadeAfter=parseInt(e.target.value)||20; markCustom(); persist(); });
   on('lfAnim','change', e=>{ l.animIn=e.target.value; markCustom(); persist(); rebuildLayoutSection(); });
   on('lfAnimDir','change', e=>{ l.animInDir=e.target.value; markCustom(); persist(); });
-  on('lfTimestamp','change', e=>{ l.showTimestamp=e.target.checked; persist(); });
-  on('lfBadges','change', e=>{ l.showBadgeIcons=e.target.checked; persist(); });
-  on('lfEmotes','change', e=>{ l.showEmotes=e.target.checked; persist(); });
+  on('lfTimestamp','change', e=>{ l.showTimestamp=e.target.checked; markCustom(); persist(); });
+  on('lfBadges','change', e=>{ l.showBadgeIcons=e.target.checked; markCustom(); persist(); });
+  on('lfEmotes','change', e=>{ l.showEmotes=e.target.checked; markCustom(); persist(); });
 }
 
 // ── Role styles ────────────────────────────────────────────────────────────
@@ -252,7 +250,13 @@ function roleSectionHtml(){
   <div class="row mt" style="gap:14px;flex-wrap:wrap;align-items:center">
     ${checkInput('rfBadge', r.badge, 'Show badge icon')}
     ${field('Badge icon (emoji or text)', `<input type="text" id="rfBadgeIcon" value="${esc(r.badgeIcon||'')}" style="width:70px">`)}
-  </div>`;
+    ${field('Custom image (overrides text)', `<span class="row" style="gap:6px;align-items:center">
+      ${r.badgeImage?`<img src="${r.badgeImage}" style="height:24px;width:24px;object-fit:contain;border-radius:4px;background:rgba(255,255,255,.08)">`:''}
+      <button class="btn-sm btn-ghost" id="rfBadgeImgPick">${r.badgeImage?'Change…':'Pick image…'}</button>
+      ${r.badgeImage?`<button class="btn-sm btn-ghost" id="rfBadgeImgClear" title="Remove custom image">✕</button>`:''}
+    </span>`)}
+  </div>
+  <div class="hint">Badge image: square PNG with transparency works best — <b>64×64 to 128×128 px, under 100&nbsp;KB</b> (hard cap 300&nbsp;KB). It renders at chat-text height (~18&nbsp;px), so bigger files just waste space.</div>`;
 }
 function rebuildRoleSection(){
   const el = $('chRoleSection'); if(!el) return;
@@ -287,6 +291,25 @@ function wireRoleSection(){
   on('rfGlowSize','input', e=>{ r.glowSize=parseInt(e.target.value)||0; markCustom(); persist(); });
   on('rfBadge','change', e=>{ r.badge=e.target.checked; markCustom(); persist(); });
   on('rfBadgeIcon','input', e=>{ r.badgeIcon=e.target.value; markCustom(); persist(); });
+  on('rfBadgeImgPick','click', async()=>{
+    try{
+      const f = await dialog.open({ multiple:false, filters:[{name:'Images',extensions:['png','jpg','jpeg','gif','webp']}] });
+      if(!f) return;
+      const bytes = await window.__TAURI__.fs.readFile(f);
+      if(bytes.length > 300*1024){
+        alert('That image is '+Math.round(bytes.length/1024)+' KB — too big for a chat badge.\n\nRecommended: square PNG, 64×64 to 128×128 px, under 100 KB (max 300 KB).');
+        return;
+      }
+      let bin = '';
+      for(let i=0;i<bytes.length;i+=32768) bin += String.fromCharCode.apply(null, bytes.subarray(i, i+32768));
+      const ext  = (f.split('.').pop()||'png').toLowerCase();
+      const mime = ext==='jpg'||ext==='jpeg' ? 'image/jpeg' : ext==='gif' ? 'image/gif' : ext==='webp' ? 'image/webp' : 'image/png';
+      r.badgeImage = 'data:'+mime+';base64,'+btoa(bin);
+      r.badge = true;
+      markCustom(); persist(); rebuildRoleSection();
+    }catch(e){ alert('Could not load image: '+(e&&e.message)); }
+  });
+  on('rfBadgeImgClear','click', ()=>{ r.badgeImage=''; markCustom(); persist(); rebuildRoleSection(); });
 }
 
 // ── Follow / Sub alerts ─────────────────────────────────────────────────────
@@ -329,8 +352,8 @@ function rebuildAlertCard(kind, prefix){
 }
 function wireAlertCard(kind, prefix){
   const a = cfg.alerts[kind];
-  on(prefix+'En','change', e=>{ a.enabled=e.target.checked; persist(); });
-  on(prefix+'Text','input', e=>{ a.text=e.target.value; persist(); });
+  on(prefix+'En','change', e=>{ a.enabled=e.target.checked; markCustom(); persist(); });
+  on(prefix+'Text','input', e=>{ a.text=e.target.value; markCustom(); persist(); });
   on(prefix+'Icon','input', e=>{ a.icon=e.target.value; markCustom(); persist(); });
   on(prefix+'Bg','input', e=>{ a.bgColor=e.target.value; markCustom(); persist(); });
   on(prefix+'Txt','input', e=>{ a.textColor=e.target.value; markCustom(); persist(); });
@@ -338,7 +361,7 @@ function wireAlertCard(kind, prefix){
   on(prefix+'Font','change', e=>{ a.font=e.target.value; markCustom(); persist(); });
   on(prefix+'Fs','input', e=>{ a.fontSize=parseInt(e.target.value)||16; markCustom(); persist(); });
   on(prefix+'Fw','change', e=>{ a.fontWeight=parseInt(e.target.value)||800; markCustom(); persist(); });
-  on(prefix+'Dur','input', e=>{ a.duration=parseInt(e.target.value)||6; persist(); });
+  on(prefix+'Dur','input', e=>{ a.duration=parseInt(e.target.value)||6; markCustom(); persist(); });
   on(prefix+'Glow','change', e=>{ a.glow=e.target.checked; markCustom(); persist(); });
   on(prefix+'GlowColor','input', e=>{ a.glowColor=e.target.value; markCustom(); persist(); });
   on(prefix+'GlowSize','input', e=>{ a.glowSize=parseInt(e.target.value)||0; markCustom(); persist(); });
@@ -346,9 +369,9 @@ function wireAlertCard(kind, prefix){
   on(prefix+'Dir','change', e=>{ a.animInDir=e.target.value; markCustom(); persist(); });
   on(prefix+'PickSfx','click', async()=>{
     const f=await dialog.open({multiple:false,filters:[{name:'Audio',extensions:['mp3','wav','ogg','m4a']}]});
-    if(f){ a.sound=f; $(prefix+'SfxName').textContent=f.split(/[\\/]/).pop(); persist(); }
+    if(f){ a.sound=f; $(prefix+'SfxName').textContent=f.split(/[\\/]/).pop(); markCustom(); persist(); }
   });
-  on(prefix+'ClearSfx','click', ()=>{ a.sound=null; $(prefix+'SfxName').textContent='No file'; persist(); });
+  on(prefix+'ClearSfx','click', ()=>{ a.sound=null; $(prefix+'SfxName').textContent='No file'; markCustom(); persist(); });
 }
 
 // ── Live chat log (in-app, verification + quick-ignore) ────────────────────
@@ -363,10 +386,7 @@ function renderLiveLog(){
     </div>`).join('');
   el.querySelectorAll('[data-ignoreuser]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      const u = lower(btn.dataset.ignoreuser);
-      if(!cfg.ignoreList.includes(u)) cfg.ignoreList.push(u);
-      persist();
-      buildLeft();
+      addIgnore(btn.dataset.ignoreuser); // global list — fires spark-ignorelist, which re-renders the log
     });
   });
 }
@@ -376,7 +396,6 @@ function buildLeft(){
   const el = $('chatLeft'); if(!el) return;
   el.innerHTML = `
     ${presetPickerHtml()}
-    ${ignoreListHtml()}
     <div class="card">
       <h2>Layout &amp; Background</h2>
       <div id="chLayoutSection">${layoutSectionHtml()}</div>
@@ -389,12 +408,11 @@ function buildLeft(){
     ${alertCardHtml('sub','afSub')}
     <div class="card" style="margin-bottom:60px">
       <h2>Live Chat <span class="tag" id="chLiveCount">0</span></h2>
-      <div class="hint">Recent messages from Twitch chat. Click Ignore to add a username to the filter list instantly.</div>
+      <div class="hint">Recent messages from Twitch chat. Click Ignore to add a username to the global ignore list (Settings tab).</div>
       <div id="chLiveLog" style="max-height:220px;overflow-y:auto;margin-top:8px"></div>
     </div>
   `;
   wirePresetPicker();
-  wireIgnoreList();
   wireLayoutSection();
   wireRoleSection();
   wireAlertCard('follow','afFollow');
@@ -412,7 +430,7 @@ function playSfx(path){
 async function chatHandler(e){
   const d = e.detail;
   const uname = lower(d.username);
-  const ignored = (cfg.ignoreList||[]).includes(uname);
+  const ignored = isIgnored(uname);
   liveLog.push({ username:d.username, display:d.display||d.username, message:d.message, ignored });
   if(liveLog.length>30) liveLog = liveLog.slice(-30); // keep the log light — last 30 only
   renderLiveLog();
@@ -460,7 +478,15 @@ async function fetchEmotes(){
 export async function initChat(){
   const saved = store.chat || {};
   cfg = deepMerge(defaultCfg(), saved);
-  if(!Array.isArray(cfg.ignoreList)) cfg.ignoreList = [];
+  // Legacy field — the real list now lives in Settings (store.settings.ignoreList).
+  // Kept empty here so the next save persists the post-migration cleared state.
+  cfg.ignoreList = [];
+
+  // Re-flag the live log when the global list changes (quick-ignore, Settings edit)
+  window.addEventListener('spark-ignorelist', ()=>{
+    liveLog.forEach(m=>{ m.ignored = isIgnored(m.username); });
+    renderLiveLog();
+  });
   if(!cfg.preset) cfg.preset = 'Custom';
   if(!cfg.customPresets || typeof cfg.customPresets !== 'object') cfg.customPresets = saved.customPresets || {};
 
@@ -487,3 +513,4 @@ export async function initChat(){
   window.addEventListener('spark-chat', chatHandler);
   window.addEventListener('spark-goal', goalHandler);
 }
+                                                                                                                                                                                                                                                                                                                                                                                                                                                   

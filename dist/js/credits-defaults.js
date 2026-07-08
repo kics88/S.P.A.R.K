@@ -131,4 +131,97 @@ export const PRESETS = {
       subs:      { headingColor:'#3ddc97', nameColor:'#ffffff', headingSize:16, nameSize:14 },
       followers: { headingColor:'#8fd6ff', nameColor:'#ffffff', headingSize:16, nameSize:14 },
       viewers:   { headingColor:'#ffffff', nameColor:'#ffffff', headingSize:16, nameSize:14 },
-     
+      special:   { headingColor:'#ffc83d', nameColor:'#ffffff', headingSize:16, nameSize:14 },
+    },
+  },
+  'Bland': {
+    layout:{ font:'Segoe UI', bg:'transparent' },
+    scroll:{ direction:'up', speed:50, fadeEdges:false },
+    sections:{
+      mods:      { headingColor:'#dddddd', nameColor:'#ffffff', divider:false },
+      vips:      { headingColor:'#dddddd', nameColor:'#ffffff', divider:false },
+      subs:      { headingColor:'#dddddd', nameColor:'#ffffff', divider:false },
+      followers: { headingColor:'#dddddd', nameColor:'#ffffff', divider:false },
+      viewers:   { headingColor:'#dddddd', nameColor:'#ffffff', divider:false },
+      special:   { headingColor:'#dddddd', nameColor:'#ffffff', divider:false },
+    },
+  },
+  'Elegant Gold': {
+    layout:{ font:'Cormorant Garamond', bg:'gradient', bgColor:'#1a0e05', bgColor2:'#2e1608', bgOpacity:.85 },
+    scroll:{ direction:'up', speed:42, fadeEdges:true },
+    sections:{
+      mods:      { headingColor:'#d4af37', nameColor:'#f5ead0' },
+      vips:      { headingColor:'#e8c766', nameColor:'#f5ead0' },
+      subs:      { headingColor:'#f0d98c', nameColor:'#f5ead0' },
+      followers: { headingColor:'#c9b98a', nameColor:'#f5ead0' },
+      viewers:   { headingColor:'#d4af37', nameColor:'#f5ead0' },
+      special:   { headingColor:'#ffe58a', nameColor:'#fff7e0', font:'Great Vibes', headingSize:30, nameSize:22 },
+    },
+  },
+  'Spooky': {
+    layout:{ font:'Courier Prime', bg:'solid', bgColor:'#050208', bgOpacity:.92 },
+    scroll:{ direction:'up', speed:38, fadeEdges:true },
+    sections:{
+      mods:      { headingColor:'#9d7bff', nameColor:'#e8e0f5' },
+      vips:      { headingColor:'#39ff88', nameColor:'#e5ffe9' },
+      subs:      { headingColor:'#ff8a2b', nameColor:'#fff0e0' },
+      followers: { headingColor:'#a4d4ff', nameColor:'#e0f0ff' },
+      viewers:   { headingColor:'#c9a4ff', nameColor:'#e8e0f5' },
+      special:   { headingColor:'#ff3b3b', nameColor:'#ffe0e0', font:'Creepster', headingSize:26, nameSize:20 },
+    },
+  },
+  'Cutesy': {
+    layout:{ font:'Fredoka', bg:'gradient', bgColor:'#ffd6ec', bgColor2:'#ffe8f5', bgOpacity:.3 },
+    scroll:{ direction:'up', speed:48, fadeEdges:true },
+    sections:{
+      mods:      { headingColor:'#4fc3d9', nameColor:'#204a52' },
+      vips:      { headingColor:'#b56fff', nameColor:'#4a2b5a' },
+      subs:      { headingColor:'#ff4fa3', nameColor:'#5a2b4a' },
+      followers: { headingColor:'#ff8fc4', nameColor:'#5a3350' },
+      viewers:   { headingColor:'#ff6fb0', nameColor:'#5a3350' },
+      special:   { headingColor:'#ff9d4f', nameColor:'#5a3410', font:'Pacifico', headingSize:26, nameSize:20 },
+    },
+  },
+  'Minimal Mono': {
+    layout:{ font:'Inter', bg:'transparent' },
+    scroll:{ direction:'up', speed:55, fadeEdges:false, gap:6 },
+    sections:{
+      mods:      { headingColor:'#ffffff', nameColor:'#cfcfcf', divider:false, headingSize:16 },
+      vips:      { headingColor:'#ffffff', nameColor:'#cfcfcf', divider:false, headingSize:16 },
+      subs:      { headingColor:'#ffffff', nameColor:'#cfcfcf', divider:false, headingSize:16 },
+      followers: { headingColor:'#ffffff', nameColor:'#cfcfcf', divider:false, headingSize:16 },
+      viewers:   { headingColor:'#ffffff', nameColor:'#cfcfcf', divider:false, headingSize:16 },
+      special:   { headingColor:'#ffffff', nameColor:'#cfcfcf', divider:false, headingSize:16 },
+    },
+  },
+  'Royal Purple': {
+    layout:{ font:'Cinzel', bg:'gradient', bgColor:'#0f0620', bgColor2:'#1e0d3a', bgOpacity:.85 },
+    scroll:{ direction:'up', speed:44, fadeEdges:true },
+    sections:{
+      mods:      { headingColor:'#b98bff', nameColor:'#ede4ff' },
+      vips:      { headingColor:'#ff8fd6', nameColor:'#ffe9fb' },
+      subs:      { headingColor:'#8fb4ff', nameColor:'#e4edff' },
+      followers: { headingColor:'#c9a4ff', nameColor:'#ede4ff' },
+      viewers:   { headingColor:'#e0c8ff', nameColor:'#ede4ff' },
+      special:   { headingColor:'#ffd76a', nameColor:'#fff2d0' },
+    },
+  },
+  'Sports Broadcast': {
+    layout:{ font:'Russo One', bg:'solid', bgColor:'#0a1628', bgOpacity:.92 },
+    scroll:{ direction:'left', dock:'bottom', bandHeight:120, speed:90, fadeEdges:false },
+    sections:{
+      mods:      { headingColor:'#4cc3ff', nameColor:'#ffffff', headingSize:18, nameSize:18 },
+      vips:      { headingColor:'#ffc83d', nameColor:'#ffffff', headingSize:18, nameSize:18 },
+      subs:      { headingColor:'#3ddc97', nameColor:'#ffffff', headingSize:18, nameSize:18 },
+      followers: { headingColor:'#ff5d73', nameColor:'#ffffff', headingSize:18, nameSize:18 },
+      viewers:   { headingColor:'#ffffff', nameColor:'#ffffff', headingSize:18, nameSize:18 },
+      special:   { headingColor:'#ffc83d', nameColor:'#ffffff', headingSize:18, nameSize:18 },
+    },
+  },
+};
+
+export function applyPreset(name){
+  const patch = PRESETS[name];
+  if(!patch) return defaultCfg();
+  return deepMerge(defaultCfg(), patch);
+}

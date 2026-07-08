@@ -17,6 +17,7 @@ let queue = [];
 let winnerAudio = null;
 let soundSettings = { enabled:false, path:null };
 let overlaySettings = { winnerSeconds:5 };
+let redeemSettings = { usePoints:true, anyReward:false, rewardId:'' };
 
 const canvas = ()=> $('wCanvas');
 const ctx    = ()=> canvas().getContext('2d');
@@ -38,7 +39,7 @@ function persist(){
       lists, activeListName,
       activeState:{ items:state.items, fullItems:state.fullItems, themeName:state.themeName,
         customColors:state.customColors, removeWinner:state.removeWinner },
-      sound: soundSettings, overlaySettings,
+      sound: soundSettings, overlaySettings, redeem: redeemSettings,
     }});
     pushOverlay(); // debounced with the save — render() fires persist() constantly
   },120);
@@ -109,7 +110,13 @@ function doSpin(redeemer){
   const winnerName = state.items[targetIdx].name;
   const ws = overlaySettings.winnerSeconds||5;
 
-  invoke('wheel_overlay_spin',{ finalAngle, winner:winnerName, winnerSeconds:ws });
+  // The overlay must spin the SAME wheel the winner was computed on. If a
+  // pending winner was just removed above, the overlay still shows the old
+  // items (the update normally rides the debounced persist AFTER the spin
+  // ends) — so push the current items first, then fire the spin.
+  pushOverlay()
+    .catch(()=>{})
+    .then(()=> invoke('wheel_overlay_spin',{ finalAngle, winner:winnerName, winnerSeconds:ws }));
   animateTo(finalAngle,()=>{
     pendingRemoval = winnerName;
     $('wheelWinner').innerHTML = esc(winnerName)+(redeemer?`<small>spun by ${esc(redeemer)}</small>`:'');
@@ -307,7 +314,12 @@ function wireWheelEvents(){
   });
   $('wStopBtn').addEventListener('click',()=>invoke('twitch_disconnect'));
   $('wRefreshRewards').addEventListener('click',loadRewards);
-  $('wAnyReward').addEventListener('change',e=>{ $('wRewardSelect').disabled=e.target.checked; });
+  $('wAnyReward').addEventListener('change',e=>{
+    $('wRewardSelect').disabled=e.target.checked;
+    redeemSettings.anyReward=e.target.checked; persist();
+  });
+  $('wUsePoints').addEventListener('change',e=>{ redeemSettings.usePoints=e.target.checked; persist(); });
+  $('wRewardSelect').addEventListener('change',e=>{ redeemSettings.rewardId=e.target.value; persist(); });
   // overlay url bar
   renderOverlayBar('wOverlayMode','wOverlayUrl','wCopyUrl','wheel',store.overlayUrls);
   // redeem listener
@@ -315,8 +327,9 @@ function wireWheelEvents(){
     const d=e.detail;
     if(!$('wUsePoints').checked) return;
     if(!$('wAnyReward').checked){
-      const sel=$('wRewardSelect');
-      if(sel.value && d.reward_id!==sel.value) return;
+      // saved id is the source of truth — the dropdown may not be loaded yet
+      const want=redeemSettings.rewardId||$('wRewardSelect').value;
+      if(want && d.reward_id!==want) return;
     }
     queue.push(d.user_name||'someone');
     processQueue();
@@ -328,6 +341,13 @@ async function loadRewards(){
     const r=await invoke('twitch_get_rewards');
     const sel=$('wRewardSelect');
     sel.innerHTML=(r.rewards||[]).map(rw=>`<option value="${rw.id}">${esc(rw.title)} (${rw.cost})</option>`).join('')||'<option value="">(no rewards)</option>';
+    // Restore the saved selection instead of resetting to the first reward.
+    // If the saved reward no longer exists, leave the browser default but
+    // don't clobber the saved id — it may belong to a reward that comes back.
+    if(redeemSettings.rewardId && [...sel.options].some(o=>o.value===redeemSettings.rewardId)){
+      sel.value=redeemSettings.rewardId;
+    }
+    sel.disabled=redeemSettings.anyReward;
   }catch(e){ const w=$('wTwWarn');if(w){w.textContent='⚠ '+e;w.style.display='block';} }
 }
 
@@ -346,6 +366,10 @@ export async function initWheel(){
   lists=d.lists||{};
   soundSettings=Object.assign({enabled:false,path:null},d.sound||{});
   overlaySettings=Object.assign({winnerSeconds:5},d.overlaySettings||{});
+  redeemSettings=Object.assign({usePoints:true,anyReward:false,rewardId:''},d.redeem||{});
+  $('wUsePoints').checked=redeemSettings.usePoints;
+  $('wAnyReward').checked=redeemSettings.anyReward;
+  $('wRewardSelect').disabled=redeemSettings.anyReward;
   if(d.activeState?.items?.length){
     state.items=d.activeState.items;state.fullItems=d.activeState.fullItems||[];
     state.themeName=d.activeState.themeName||'Neon';state.customColors=d.activeState.customColors||null;

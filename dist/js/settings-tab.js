@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, ignoreList, saveIgnoreList } from './store.js';
 import { $, esc } from './utils.js';
 import { setHeaderStatus } from './app.js';
 
@@ -84,6 +84,13 @@ export async function initSettings(){
     </div>
   </div>
   <div class="card" style="max-width:520px;margin-top:0">
+    <h2>Bot / User Ignore List</h2>
+    <div class="hint" style="margin-bottom:8px">One username per line. These users are ignored everywhere — chat overlay, credits, and any future tools. Great for bots like Nightbot or StreamElements. The Chat tab's quick-Ignore button also adds to this list.</div>
+    <textarea id="settIgnoreList" style="height:90px">${esc(ignoreList().join('\n'))}</textarea>
+    <button class="btn-sm mt" id="settIgnoreSave">Save Ignore List</button>
+    <span class="ok" id="settIgnoreOk" style="display:none;margin-left:8px">Saved!</span>
+  </div>
+  <div class="card" style="max-width:520px;margin-top:0">
     <h2>Backup &amp; Restore</h2>
     <div class="hint" style="margin-bottom:12px">Export a backup of all your lists, goals, check-in counts, and settings. Twitch tokens are excluded. You'll reconnect on a new PC in about 30 seconds.</div>
     <div class="row">
@@ -131,6 +138,19 @@ function wireSettingsEvents(){
     catch(e){ setTwStatus('err',String(e)); }
   });
 
+  // Global ignore list
+  $('settIgnoreSave').addEventListener('click',()=>{
+    const lines = $('settIgnoreList').value.split('\n').map(s=>s.trim().toLowerCase()).filter(Boolean);
+    store.settings.ignoreList = [...new Set(lines)];
+    saveIgnoreList();
+    const ok=$('settIgnoreOk'); if(ok){ ok.style.display='inline'; setTimeout(()=>ok.style.display='none',1500); }
+  });
+  // Keep the textarea current when another tab adds a name (chat quick-ignore)
+  window.addEventListener('spark-ignorelist',()=>{
+    const ta=$('settIgnoreList');
+    if(ta && document.activeElement!==ta) ta.value = ignoreList().join('\n');
+  });
+
   // Backup
   $('settExportBtn').addEventListener('click',async()=>{
     try{
@@ -168,34 +188,4 @@ function wireSettingsEvents(){
   });
 }
 
-function showBackupMsg(msg){ const e=$('settBackupMsg'); if(e){ e.textContent=msg; e.style.display='block'; } const o=$('settBackupOk'); if(o) o.style.display='none'; }
-function showBackupOk(msg){ const e=$('settBackupOk'); if(e){ e.textContent=msg; e.style.display='block'; } const w=$('settBackupMsg'); if(w) w.style.display='none'; }
-
-async function startAuth(){
-  const clientId=$('settTwClientId').value.trim();
-  if(!clientId){ alert('Paste your Client ID first.'); return; }
-  setTwStatus('wait','Requesting device code…');
-  try{
-    const dev=await invoke('twitch_start_device_auth',{clientId});
-    $('settTwDeviceBox').style.display='block';
-    $('settTwCode').textContent=dev.user_code;
-    const uri=dev.verification_uri||'https://www.twitch.tv/activate';
-    const link=$('settTwLink'); link.textContent=uri; link.dataset.url=uri;
-    setTwStatus('wait','Waiting for browser authorization…');
-    pollDevice(clientId,dev.device_code,dev.interval||5);
-  }catch(e){ setTwStatus('err',String(e)); }
-}
-
-async function pollDevice(clientId,deviceCode,interval){
-  const tick=async()=>{
-    try{
-      const r=await invoke('twitch_poll_device_auth',{clientId,deviceCode});
-      if(r.status==='authorized'){
-        $('settTwDeviceBox').style.display='none';
-        await afterConnected(); return;
-      }
-    }catch(e){}
-    setTimeout(tick,Math.max(interval,3)*1000);
-  };
-  setTimeout(tick,Math.max(interval,3)*1000);
-}
+function showBackupMsg(msg){ const e=$('settBackupMsg'); if(e){ e.textContent=msg; e.style.display='block'; } const o=$('settBackupOk'); if(o) o.st

@@ -229,14 +229,16 @@ pub fn twitch_connect_eventsub(app: tauri::AppHandle, shared: State<Shared>) -> 
     // Cheap up-front check so the UI gets an immediate error if not connected —
     // the thread fetches its own (fresh) token on every (re)connect.
     ensure_token(&shared)?;
-    if shared.twitch_running.load(Ordering::SeqCst) {
-        shared.twitch_stop.store(true, Ordering::SeqCst);
-        std::thread::sleep(Duration::from_millis(300));
-    }
+    // Bump the generation: any previously spawned EventSub thread sees a stale
+    // generation on its next check and exits. Unlike the old stop-flag sleep
+    // handshake, this cannot race — the old thread compares against the new
+    // value whenever it wakes, so exactly one thread survives.
+    let my_gen = shared.twitch_gen.fetch_add(1, Ordering::SeqCst) + 1;
     shared.twitch_stop.store(false, Ordering::SeqCst);
     shared.twitch_running.store(true, Ordering::SeqCst);
     let stop = shared.twitch_stop.clone();
-    std::thread::spawn(move || { run_eventsub(&app, stop); });
+    let gen  = shared.twitch_gen.clone();
+    std::thread::spawn(move || { run_eventsub(&app, stop, gen, my_gen); });
     Ok(())
 }
 
@@ -261,11 +263,13 @@ fn subscribe(access: &str, client_id: &str, session_id: &str, sub_type: &str, ve
 // longer than this, it's half-open (PC sleep, network drop) — force a reconnect.
 const EVENTSUB_SILENCE_TIMEOUT: Duration = Duration::from_secs(30);
 
-fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::AtomicBool>, gen: std::sync::Arc<std::sync::atomic::AtomicU64>, my_gen: u64) {
     use tungstenite::Message;
+    // True when this thread has been superseded by a newer connect (or disconnected).
+    let stale = || stop.load(Ordering::SeqCst) || gen.load(Ordering::SeqCst) != my_gen;
     let mut url = "wss://eventsub.wss.twitch.tv/ws".to_string();
     loop {
-        if stop.load(Ordering::SeqCst) { return; }
+        if stale() { return; }
 
         // Fresh token on every (re)connect — the old one may have expired.
         let creds = {
@@ -276,7 +280,7 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
             Ok(x) => x,
             Err(e) => {
                 let _ = app.emit("twitch-status", json!({"connected":false,"error":e}));
-                for _ in 0..20 { if stop.load(Ordering::SeqCst) { return; } std::thread::sleep(Duration::from_millis(500)); }
+                for _ in 0..20 { if stale() { return; } std::thread::sleep(Duration::from_millis(500)); }
                 continue;
             }
         };
@@ -287,7 +291,7 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
             Err(e) => {
                 let _ = app.emit("twitch-status", json!({"connected":false,"error":format!("WS connect failed: {}", e)}));
                 url = "wss://eventsub.wss.twitch.tv/ws".to_string();
-                for _ in 0..6 { if stop.load(Ordering::SeqCst) { return; } std::thread::sleep(Duration::from_millis(500)); }
+                for _ in 0..6 { if stale() { return; } std::thread::sleep(Duration::from_millis(500)); }
                 continue;
             }
         };
@@ -299,7 +303,7 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
         let mut reconnect_url: Option<String> = None;
         let mut last_msg = Instant::now();
         loop {
-            if stop.load(Ordering::SeqCst) { let _ = socket.close(None); return; }
+            if stale() { let _ = socket.close(None); return; }
             match socket.read() {
                 Ok(Message::Text(txt)) => {
                     last_msg = Instant::now();
@@ -330,6 +334,7 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
                             // Channel point redeems
                             if sub_type == "channel.channel_points_custom_reward_redemption.add" {
                                 let _ = app.emit("twitch-redeem", json!({
+                                    "redemption_id": ev["id"],
                                     "reward_id":    ev["reward"]["id"],
                                     "reward_title": ev["reward"]["title"],
                                     "user_id":      ev["user_id"],
@@ -410,8 +415,8 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
         match reconnect_url.take() {
             Some(u) => { url = u; continue; }
             None => {
-                if stop.load(Ordering::SeqCst) { return; }
-                for _ in 0..6 { if stop.load(Ordering::SeqCst) { return; } std::thread::sleep(Duration::from_millis(500)); }
+                if stale() { return; }
+                for _ in 0..6 { if stale() { return; } std::thread::sleep(Duration::from_millis(500)); }
                 url = "wss://eventsub.wss.twitch.tv/ws".to_string();
             }
         }
@@ -426,9 +431,13 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
 pub fn twitch_connect_chat(app: tauri::AppHandle, shared: State<Shared>, channel: String) -> Result<(), String> {
     // Cheap up-front check for immediate UI feedback; the thread refreshes its own token.
     ensure_token(&shared)?;
+    // Generation bump — same pattern as EventSub: guarantees a "Reconnect chat"
+    // can never leave two IRC threads alive (which would double every ! command).
+    let my_gen = shared.chat_gen.fetch_add(1, Ordering::SeqCst) + 1;
     shared.chat_stop.store(false, Ordering::SeqCst);
     let stop = shared.chat_stop.clone();
-    std::thread::spawn(move || { run_chat(&app, &channel, stop); });
+    let gen  = shared.chat_gen.clone();
+    std::thread::spawn(move || { run_chat(&app, &channel, stop, gen, my_gen); });
     Ok(())
 }
 
@@ -437,10 +446,12 @@ pub fn twitch_connect_chat(app: tauri::AppHandle, shared: State<Shared>, channel
 const CHAT_PING_INTERVAL:    Duration = Duration::from_secs(60);
 const CHAT_SILENCE_TIMEOUT:  Duration = Duration::from_secs(180);
 
-fn run_chat(app: &tauri::AppHandle, channel: &str, stop: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+fn run_chat(app: &tauri::AppHandle, channel: &str, stop: std::sync::Arc<std::sync::atomic::AtomicBool>, gen: std::sync::Arc<std::sync::atomic::AtomicU64>, my_gen: u64) {
     use tungstenite::Message;
+    // True when this thread has been superseded by a newer connect (or disconnected).
+    let stale = || stop.load(Ordering::SeqCst) || gen.load(Ordering::SeqCst) != my_gen;
     loop {
-        if stop.load(Ordering::SeqCst) { return; }
+        if stale() { return; }
 
         // Fresh token on every (re)connect — IRC PASS with an expired token
         // fails auth forever, so never reuse a captured one.
@@ -451,7 +462,7 @@ fn run_chat(app: &tauri::AppHandle, channel: &str, stop: std::sync::Arc<std::syn
         let (access, login) = match creds {
             Ok(x) => x,
             Err(_) => {
-                for _ in 0..20 { if stop.load(Ordering::SeqCst) { return; } std::thread::sleep(Duration::from_millis(500)); }
+                for _ in 0..20 { if stale() { return; } std::thread::sleep(Duration::from_millis(500)); }
                 continue;
             }
         };
@@ -459,7 +470,7 @@ fn run_chat(app: &tauri::AppHandle, channel: &str, stop: std::sync::Arc<std::syn
         let (mut socket, _) = match tungstenite::connect("wss://irc-ws.chat.twitch.tv:443") {
             Ok(s) => s,
             Err(_) => {
-                for _ in 0..6 { if stop.load(Ordering::SeqCst) { return; } std::thread::sleep(Duration::from_millis(500)); }
+                for _ in 0..6 { if stale() { return; } std::thread::sleep(Duration::from_millis(500)); }
                 continue;
             }
         };
@@ -478,7 +489,7 @@ fn run_chat(app: &tauri::AppHandle, channel: &str, stop: std::sync::Arc<std::syn
         let mut last_msg  = Instant::now();
         let mut last_ping = Instant::now();
         loop {
-            if stop.load(Ordering::SeqCst) { let _ = socket.close(None); return; }
+            if stale() { let _ = socket.close(None); return; }
             match socket.read() {
                 Ok(Message::Text(txt)) => {
                     last_msg = Instant::now();
@@ -506,8 +517,8 @@ fn run_chat(app: &tauri::AppHandle, channel: &str, stop: std::sync::Arc<std::syn
                 Err(_) => break,
             }
         }
-        if stop.load(Ordering::SeqCst) { return; }
-        for _ in 0..6 { if stop.load(Ordering::SeqCst) { return; } std::thread::sleep(Duration::from_millis(500)); }
+        if stale() { return; }
+        for _ in 0..6 { if stale() { return; } std::thread::sleep(Duration::from_millis(500)); }
     }
 }
 

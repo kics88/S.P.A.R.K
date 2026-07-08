@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, ignoreList } from './store.js';
 import { $, esc, renderOverlayBar, initDrag } from './utils.js';
 import {
   defaultCfg, deepMerge, applyPreset, PRESETS,
@@ -14,12 +14,39 @@ const dialog = window.__TAURI__.dialog;
 let cfg = defaultCfg();
 let saveTimer = null;
 
-// ── Session-only chat tracking (never written to disk) ─────────────────────
-// key = lowercase username
+// ── Session chat tracking ───────────────────────────────────────────────────
+// key = lowercase username. Persisted to disk (throttled) so an app restart
+// mid/post-stream doesn't wipe the credits roster — on boot it's restored if
+// the newest activity is fresher than SESSION_STALE_MS, otherwise it's treated
+// as last stream's data and cleared.
 let chatters = {};
+let lastActivityAt = 0;
+const SESSION_STALE_MS = 6 * 3600 * 1000;
 let followerCache = {};  // userId -> bool
 let avatarCache = {};    // userId -> url
 let hasResetThisBoot = false;
+
+// Throttled disk save: at most one write per 30s, trailing save guaranteed
+// (a pure debounce would never fire during nonstop chat).
+let sessionSaveTimer = null;
+let lastSessionSave = 0;
+function scheduleSessionSave(){
+  if(sessionSaveTimer) return;
+  const wait = Math.max(0, 30000 - (Date.now() - lastSessionSave));
+  sessionSaveTimer = setTimeout(()=>{
+    sessionSaveTimer = null;
+    lastSessionSave = Date.now();
+    invoke('save_credits', { data: { ...cfg, session: { chatters, lastActivityAt } } });
+  }, wait);
+}
+
+function clearSession(){
+  chatters = {};
+  lastActivityAt = 0;
+  refreshSessionCount();
+  schedulePushRoster();
+  scheduleSessionSave();
+}
 
 const SAMPLE_CHATTERS = [
   { username:'modmax',        display:'ModMax',        is_mod:true,  is_vip:false, is_sub:false, is_follower:true,  firstSeenAt:1 },
@@ -37,8 +64,23 @@ function persist(){
   saveTimer = setTimeout(pushNow, 250);
 }
 function pushNow(){
-  invoke('save_credits', { data: cfg });
+  // Always write the session alongside cfg — a plain {data: cfg} save here
+  // would strip the persisted chatters from disk on any settings tweak.
+  invoke('save_credits', { data: { ...cfg, session: { chatters, lastActivityAt } } });
   invoke('credits_overlay_settings', { cfg, roster: resolveRoster(false) });
+  sendPreview();
+}
+
+// The live-preview iframe runs in ?preview=1 mode and is driven directly via
+// postMessage — unlike a real overlay it should ALWAYS show something after a
+// settings change (sample names when no live chatters yet), otherwise style
+// tweaks are invisible until credits actually play.
+function sendPreview(){
+  const frame = $('creditsPreviewFrame');
+  if(!frame || !frame.contentWindow) return;
+  const live = resolveRoster(false);
+  const roster = live.length ? live : resolveRoster(true);
+  frame.contentWindow.postMessage({ type:'spark-preview', cfg, roster }, '*');
 }
 
 // Lighter-weight refresh triggered by chat activity — keeps the overlay's
@@ -49,6 +91,7 @@ function schedulePushRoster(){
   clearTimeout(rosterPushTimer);
   rosterPushTimer = setTimeout(()=>{
     invoke('credits_overlay_settings', { cfg, roster: resolveRoster(false) });
+    renderSessionRoster(); // debounced here — too costly per chat message
   }, 1500);
 }
 
@@ -317,8 +360,8 @@ function wireSectionCard(key){
 // ── Exclude list ──────────────────────────────────────────────────────────────
 function excludeListHtml(){
   return `<div class="card">
-    <h2>Exclude List <span class="tag">bots &amp; manual removes</span></h2>
-    <div class="hint">One username per line. Excluded viewers never appear in any section, no matter their role.</div>
+    <h2>Exclude List <span class="tag">credits only</span></h2>
+    <div class="hint">One username per line. Excluded from the credits only — bots you want ignored everywhere belong in Settings → Bot / User Ignore List (applied here automatically).</div>
     <textarea id="crExcludeList" style="height:80px">${esc((cfg.excludeList||[]).join('\n'))}</textarea>
   </div>`;
 }
@@ -416,22 +459,31 @@ function sessionCardHtml(){
   return `<div class="card">
     <h2>Session</h2>
     <div class="hint" id="crSessionCount">${Object.keys(chatters).length} chatter(s) tracked this session.</div>
+    <div id="crSessionRoster"></div>
     <div class="row mt" style="gap:8px">
       <button class="btn-sm btn-ghost" id="crResetSession">Reset Session</button>
       <button class="btn-sm btn-ghost" id="crPreviewSample">Preview (sample names)</button>
       <button class="btn-gold btn-sm" id="crPlayLive">▶ Play Credits</button>
     </div>
-    <div class="hint mt">Session auto-resets the first time SPARK connects to Twitch after launch, or any time you click Reset Session.</div>
+    <div class="hint mt">Session survives an app restart (up to 6h idle). It auto-resets when SPARK first connects to Twitch after a fresh stream, or any time you click Reset Session.</div>
   </div>`;
 }
 function refreshSessionCount(){
   const el = $('crSessionCount'); if(el) el.textContent = `${Object.keys(chatters).length} chatter(s) tracked this session.`;
 }
+// Visual confirmation of exactly who will appear in the credits, per section.
+function renderSessionRoster(){
+  const el = $('crSessionRoster'); if(!el) return;
+  const roster = resolveRoster(false);
+  el.innerHTML = roster.length ? roster.map(sec=>`
+    <div class="mt"><b>${esc(sec.heading)}</b> <span class="tag">${sec.names.length}</span>
+      <div class="hint" style="word-break:break-word">${sec.names.map(n=>esc(n.name)).join(', ')}</div>
+    </div>`).join('')
+    : '<div class="hint mt">Nothing collected yet — names appear here as viewers chat.</div>';
+}
 function wireSessionCard(){
   on('crResetSession','click', ()=>{
-    chatters = {};
-    refreshSessionCount();
-    schedulePushRoster();
+    clearSession();
     flashBtn($('crResetSession'), 'Reset!');
   });
   on('crPreviewSample','click', ()=>playCredits(true));
@@ -440,7 +492,8 @@ function wireSessionCard(){
 
 // ── Roster resolution ────────────────────────────────────────────────────────
 function resolveRoster(sampleMode){
-  const excl = new Set((cfg.excludeList||[]).map(lower));
+  // Global ignore list (Settings) + credits-specific excludes
+  const excl = new Set([...ignoreList(), ...(cfg.excludeList||[])].map(lower));
   const buckets = {}; AUTO_SECTION_KEYS.forEach(k=>buckets[k]=[]);
   const source = sampleMode ? SAMPLE_CHATTERS : Object.values(chatters);
 
@@ -528,8 +581,7 @@ async function chatHandler(e){
   const d = e.detail;
   const uname = lower(d.username);
   if(!uname) return;
-  const excl = new Set((cfg.excludeList||[]).map(lower));
-  if(excl.has(uname)) return;
+  if(ignoreList().includes(uname) || (cfg.excludeList||[]).map(lower).includes(uname)) return;
 
   const existing = chatters[uname];
   const elevated = d.is_broadcaster || d.is_mod || d.is_vip || d.is_sub;
@@ -542,8 +594,77 @@ async function chatHandler(e){
     firstSeenAt: existing ? existing.firstSeenAt : Date.now(),
     avatarUrl: existing ? existing.avatarUrl : null,
   };
+  lastActivityAt = Date.now();
   refreshSessionCount();
   schedulePushRoster();
+  scheduleSessionSave();
 
   if(cfg.layout.showAvatars && d.user_id && chatters[uname].avatarUrl == null){
-    fetchAvatar(d.user_id).then(url=>{ if(chatters[uname]) chat
+    fetchAvatar(d.user_id).then(url=>{ if(chatters[uname]) chatters[uname].avatarUrl = url; });
+  }
+}
+
+function twitchStatusHandler(e){
+  if(!e.detail || !e.detail.connected) return;
+  if(hasResetThisBoot) return;
+  hasResetThisBoot = true;
+  clearSession();
+}
+
+// ── Assemble left column ────────────────────────────────────────────────────
+function buildLeft(){
+  const el = $('creditsLeft'); if(!el) return;
+  el.innerHTML = `
+    ${sessionCardHtml()}
+    ${presetPickerHtml()}
+    ${sectionOrderHtml()}
+    ${rolePriorityHtml()}
+    ${SECTION_KEYS.map(sectionCardHtml).join('')}
+    ${excludeListHtml()}
+    <div id="crGeneralSettings">${generalSettingsHtml()}</div>
+    <div style="height:40px"></div>
+  `;
+  wireSessionCard();
+  wirePresetPicker();
+  wireSectionOrder();
+  wireRolePriority();
+  SECTION_KEYS.forEach(wireSectionCard);
+  wireExcludeList();
+  wireGeneralSettings();
+  renderSessionRoster();
+  renderOverlayBar('crOverlayMode','crOverlayUrl','crCopyUrl','credits',store.overlayUrls);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+export async function initCredits(){
+  const saved = store.credits || {};
+  const sess = saved.session || null;
+  cfg = deepMerge(defaultCfg(), saved);
+  delete cfg.session; // session data rides alongside cfg on disk, never inside it
+  if(!cfg.preset) cfg.preset = 'Custom';
+  if(!cfg.customPresets || typeof cfg.customPresets !== 'object') cfg.customPresets = saved.customPresets || {};
+
+  // Restore the persisted chatter session if it's fresh (crash/restart mid-
+  // stream); stale data is last stream's — leave it to the connect-reset.
+  if(sess && sess.chatters && (Date.now() - (sess.lastActivityAt || 0)) < SESSION_STALE_MS){
+    chatters = sess.chatters;
+    lastActivityAt = sess.lastActivityAt || 0;
+    hasResetThisBoot = true; // restored a live session — don't wipe it when Twitch connects
+  }
+
+  buildLeft();
+
+  const frame = $('creditsPreviewFrame');
+  const urls = store.overlayUrls || {};
+  if(frame && urls.credits){
+    frame.src = urls.credits + '?preview=1';
+    frame.addEventListener('load', ()=>sendPreview());
+  }
+
+  pushNow(); // seed overlay snapshot so a freshly opened browser source shows current styling immediately
+
+  window.addEventListener('spark-chat', chatHandler);
+  window.addEventListener('spark-twitch-status', twitchStatusHandler);
+  // Global ignore list changed — re-resolve the roster (overlay cache + tab display)
+  window.addEventListener('spark-ignorelist', ()=>schedulePushRoster());
+}

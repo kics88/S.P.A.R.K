@@ -93,22 +93,29 @@ const HELP_CONTENT = {
   tasks: {
     title: 'Tasks (Co-work)',
     html: '<h3>Overview</h3>'
-      + '<p>A shared to-do list for you and your viewers. Your tasks appear at the top in gold; viewer tasks are grouped below by username.</p>'
+      + '<p>A shared to do list for you and your viewers. Your tasks show at the top in gold. Viewer tasks are grouped below by username.</p>'
       + '<h3>Chat Commands</h3>'
       + '<ul>'
-      + '<li><code>!task add &lt;text&gt;</code>: add a task</li>'
-      + '<li><code>!task done &lt;number&gt;</code>: mark a task complete</li>'
-      + '<li><code>!task remove &lt;number&gt;</code>: delete a task</li>'
-      + '<li><code>!task clear</code>: clear all your tasks</li>'
+      + '<li><code>!task add &lt;text&gt;</code> adds a task</li>'
+      + '<li><code>!task done &lt;number&gt;</code> marks a task complete</li>'
+      + '<li><code>!task remove &lt;name&gt;</code> removes a user\'s tasks (mods only)</li>'
+      + '<li><code>!task clear</code> clears the whole list (mods only)</li>'
       + '</ul>'
-      + '<h3>Settings</h3>'
+      + '<h3>Your Tasks</h3>'
+      + '<p>Type in the <strong>Add host task</strong> box and press Enter. You can set how many tasks viewers, followers, and subs are each allowed to add.</p>'
+      + '<h3>Pomodoro Timer</h3>'
+      + '<p>A pomodoro is a simple focus method: work for a set time, then take a short break. After a few rounds you take a longer break. The name comes from a tomato shaped kitchen timer.</p>'
       + '<ul>'
-      + '<li>Set per-tier task limits (e.g. subs can add more tasks than non-subs).</li>'
-      + '<li>Use the buttons in the app to manage your own host tasks directly. Press Enter or click Add.</li>'
-      + '<li><strong>Visual Settings</strong>: customise colours, shape, font sizes, box width/padding, and position independently for the host box and viewer box. Choose to keep them combined in one box (with a separator) or split into two independently positioned boxes.</li>'
+      + '<li>Turn it on with the <strong>Enable Pomodoro timer</strong> checkbox.</li>'
+      + '<li>Pick a mode like Classic 25/5 or Deep Work 50/10, or make your own with any work length, break length, and number of rounds.</li>'
+      + '<li><strong>Focus task</strong> lets you pick one of your own tasks to show on the overlay while you work. You need at least one host task in the list first.</li>'
+      + '<li>Use <strong>Pause</strong>, <strong>+5 min</strong>, or <strong>Skip</strong> at any time. The timer is there to help you focus, not to interrupt you.</li>'
+      + '<li>Mods and the broadcaster can also control it from chat: <code>!pomo start</code>, <code>pause</code>, <code>resume</code>, <code>skip</code>, <code>reset</code>, or <code>!pomo mode &lt;name&gt;</code>.</li>'
       + '</ul>'
+      + '<h3>Looks</h3>'
+      + '<p>The task boxes have their own colour, shape, font, and position settings. You can keep host and viewer tasks in one box or split them into two. The pomodoro has its own set of themes plus a custom option, and can show progress as a ring, a bar, or plain text.</p>'
       + '<h3>OBS Overlay</h3>'
-      + '<p>Copy the <strong>Overlay URL</strong> and add it as a Browser Source in OBS to show the live task list on stream.</p>'
+      + '<p>The task list and the pomodoro are separate browser sources, so you can place them anywhere you like. Copy each URL from the preview column and add it as a Browser Source in OBS.</p>'
   },
   goals: {
     title: 'Goals',
@@ -314,6 +321,19 @@ async function boot(){
   store.settings    = data.settings    || {};
   store.twitch_tokens = data.twitch_tokens || {};
 
+  // One-time migration: Chat's per-tab bot ignore list → global Settings list.
+  // Idempotent (dedupes), so a failed save just retries next boot.
+  if(!Array.isArray(store.settings.ignoreList)) store.settings.ignoreList = [];
+  const legacyIgn = Array.isArray(store.chat.ignoreList) ? store.chat.ignoreList : [];
+  if(legacyIgn.length){
+    legacyIgn.forEach(u=>{
+      const v = String(u||'').trim().toLowerCase();
+      if(v && !store.settings.ignoreList.includes(v)) store.settings.ignoreList.push(v);
+    });
+    store.chat.ignoreList = []; // chat tab persists the cleared list on its next save
+    invoke('save_app_settings', { data: store.settings });
+  }
+
   const urls = await invoke('overlay_url');
   store.overlayUrls = urls;
 
@@ -340,25 +360,19 @@ async function boot(){
     else setHeaderStatus('err', d.error||'Disconnected');
     window.dispatchEvent(new CustomEvent('spark-twitch-status', {detail: d}));
   });
+  // Dedupe redeems by redemption id — guards against Twitch redelivering an
+  // EventSub notification (and any residual double-emit). Keeps last 200 ids.
+  const seenRedemptions = new Set();
   await listen('twitch-redeem', ev=>{
+    const rid = ev.payload && ev.payload.redemption_id;
+    if (rid) {
+      if (seenRedemptions.has(rid)) { console.warn('[redeem] duplicate dropped:', rid); return; }
+      seenRedemptions.add(rid);
+      if (seenRedemptions.size > 200) { const first = seenRedemptions.values().next().value; seenRedemptions.delete(first); }
+    }
     window.dispatchEvent(new CustomEvent('spark-redeem', {detail: ev.payload}));
   });
   await listen('twitch-chat', ev=>{
     window.dispatchEvent(new CustomEvent('spark-chat', {detail: ev.payload}));
   });
-  await listen('twitch-goal', ev=>{
-    window.dispatchEvent(new CustomEvent('spark-goal', {detail: ev.payload}));
-  });
-
-  // fire-and-forget — never blocks or breaks boot
-  checkForUpdate();
-}
-
-boot().catch(err => {
-  console.error('SPARK boot failed:', err);
-  document.body.innerHTML = '<div style="padding:40px;color:#ff5d73;font-family:monospace;background:#1b1530;min-height:100vh">'
-    + '<h2 style="color:#ffc83d;margin-bottom:16px">SPARK failed to start</h2>'
-    + '<pre style="white-space:pre-wrap;font-size:.85rem">' + (err && err.stack ? err.stack : String(err)) + '</pre>'
-    + '<p style="margin-top:20px;color:#a79fc7">Please share this error message.</p>'
-    + '</div>';
-});
+  await listen('twitch-goal',

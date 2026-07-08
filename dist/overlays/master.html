@@ -81,6 +81,12 @@ iframe{
   <div class="panel-resize"></div>
 </div>
 
+<div class="panel" id="panel-pomodoro" data-tool="pomodoro">
+  <div class="panel-handle">⠿ POMODORO</div>
+  <iframe src="/pomodoro" allowtransparency="true"></iframe>
+  <div class="panel-resize"></div>
+</div>
+
 <div class="panel" id="panel-goals" data-tool="goals">
   <div class="panel-handle">⠿ GOALS</div>
   <iframe src="/goals" allowtransparency="true"></iframe>
@@ -108,6 +114,7 @@ const DEFAULTS = {
   giveaway: { x:0,   y:0,   w:600, h:600 },
   timers:   { x: window.innerWidth-280, y:20, w:260, h:300 },
   tasks:    { x:20,  y:20,  w:320, h:400 },
+  pomodoro: { x: window.innerWidth-340, y:340, w:320, h:300 },
   goals:    { x:20,  y:window.innerHeight-120, w:440, h:80 },
   checkins:   { x: window.innerWidth-420, y: window.innerHeight-220, w:400, h:200 },
   nowplaying: { x: 20, y: window.innerHeight-140, w:440, h:120 },
@@ -124,7 +131,7 @@ function saveLayouts(layouts){
 
 // ── Visibility state (per tool) ────────────────────────────────────────────────
 // All start hidden; server tells us which are master-mode when first polled.
-const visibility = { wheel:false, giveaway:false, timers:false, tasks:false, goals:false, checkins:false, nowplaying:false };
+const visibility = { wheel:false, giveaway:false, timers:false, tasks:false, pomodoro:false, goals:false, checkins:false, nowplaying:false };
 function applyVisibility(tool, visible){
   visibility[tool] = visible;
   const panel = document.getElementById('panel-'+tool);
@@ -207,15 +214,3 @@ setTool('master');
 on('visibility', ev=>{
   if(ev.tool) applyVisibility(ev.tool, !!ev.visible);
 });
-on('_snapshot', snap=>{
-  if(!snap || !snap.visibility) return;
-  // Apply visibility state from the server snapshot (set by app on boot)
-  Object.entries(snap.visibility).forEach(([tool, visible])=>{
-    applyVisibility(tool, visible);
-  });
-});
-
-startPolling();
-</script>
-</body>
-</html>
