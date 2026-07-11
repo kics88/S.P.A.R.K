@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, toolEnabled, toolBlocked } from './store.js';
 import { $, esc, renderOverlayBar } from './utils.js';
 import { drawGoalBar, loadGoogleFont } from './bar-renderer.js';
 
@@ -88,6 +88,7 @@ function celebrate(bar){
 
 // ── Twitch ────────────────────────────────────────────────────────────────────
 window.addEventListener('spark-goal', e=>{
+  if(!toolEnabled('goals')) return;
   const d=e.detail;
   bars.forEach(bar=>{
     if(!bar.active) return;
@@ -105,6 +106,9 @@ window.addEventListener('spark-chat', e=>{
   if(parts.length<2) return;
   const cmd=parts[0].toLowerCase(), amount=parseFloat(parts[1]);
   if(isNaN(amount)) return;
+  const anyMatch=bars.some(bar=>bar.source==='custom'&&bar.name.toLowerCase().replace(/\s/g,'')===cmd);
+  if(!anyMatch) return;
+  if(toolBlocked('goals', d.display||d.username)) return;
   bars.forEach(bar=>{
     if(bar.source==='custom'&&bar.name.toLowerCase().replace(/\s/g,'')===cmd) addProgress(bar,amount);
   });

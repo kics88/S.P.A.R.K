@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, toolBlocked } from './store.js';
 import { $, esc, fmtTime, renderOverlayBar } from './utils.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -159,6 +159,7 @@ function wireTimerEvents(){
     const d=e.detail;
     const msg=(d.message||'').trim();
     if(msg.toLowerCase().startsWith('!timer ')){
+      if(toolBlocked('timers', d.display||d.username)) return;
       const name=msg.slice(7).trim().toLowerCase();
       const t=timers.find(x=>x.name.toLowerCase()===name);
       if(t){ resetTimer(t); startTimer(t); }
@@ -167,6 +168,9 @@ function wireTimerEvents(){
   // redeems
   window.addEventListener('spark-redeem',e=>{
     const d=e.detail;
+    const anyMatch=timers.some(t=>t.anyRedeem||(t.rewardId&&t.rewardId===d.reward_id));
+    if(!anyMatch) return;
+    if(toolBlocked('timers', d.user_name)) return;
     timers.forEach(t=>{
       if(t.anyRedeem||(t.rewardId&&t.rewardId===d.reward_id)){
         resetTimer(t); startTimer(t);

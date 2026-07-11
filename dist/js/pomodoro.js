@@ -599,4 +599,18 @@ export function initPomodoro(saved, apiObj){
   const running = run.phase==='work'||run.phase==='short'||run.phase==='long';
   if(running && !run.paused && Date.now()>=run.endsAt){
     const nxt=nextPhaseAfter(run.phase);
-    if(run.phase==='w
+    if(run.phase==='work') run.done++;
+    if(run.phase==='short') run.sprint++;
+    if(run.phase==='long') run.sprint=1;
+    run.phase='await'; run.next=nxt; run.endsAt=0;
+  }
+  if(!allModes().find(m=>m.id===cfg.modeId)) cfg.modeId='classic';
+
+  renderPomodoroUI();
+  attachChat();
+  if(tickTimer) clearInterval(tickTimer);
+  tickTimer=setInterval(tick,250);
+  pushOverlay();
+  // Master-overlay visibility is runtime state — re-assert the saved choice on boot
+  invoke('set_tool_visibility',{ tool:'pomodoro', visible: !!cfg.overlay.master });
+}

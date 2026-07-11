@@ -97,4 +97,18 @@ function tick(){
     }
     const done=st.mode==='down'&&rem<=0;
     const msg=el.querySelector('.timer-msg');
-    if(msg) msg.cla
+    if(msg) msg.classList.toggle('show',done&&!!st.endMessage);
+    if(done&&!st.doneAt){ st.doneAt=now; st.running=false; st.remaining=0; }
+    // Finished timers linger 10s (so the end message is actually seen), then fade
+    if(st.doneAt&&now-st.doneAt>10000) removeEl(id);
+  });
+}
+setInterval(tick,250);
+
+setTool('timers');
+on('_snapshot',s=>render(s));
+on('timers_state',ev=>render(ev.timers));
+startPolling();
+</script>
+</body>
+</html>

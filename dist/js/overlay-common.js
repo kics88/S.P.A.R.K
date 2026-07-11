@@ -33,4 +33,14 @@ async function poll(){
         since = ev._id;
       }
       const h = handlers[ev.type];
-   
+      if(h) h(ev);
+    });
+    if((!data.events || data.events.length === 0) && typeof data.latest === 'number'){
+      since = Math.max(since, data.latest);
+    }
+    setTimeout(poll, 0);
+  }catch(e){
+    console.warn('overlay poll error:', e);
+    setTimeout(poll, 800);
+  }
+}

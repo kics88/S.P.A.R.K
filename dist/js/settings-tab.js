@@ -1,4 +1,4 @@
-import { store, ignoreList, saveIgnoreList } from './store.js';
+import { store, ignoreList, saveIgnoreList, TOOL_DEFS, toolToggles, toolDefaultMsg, saveToolToggles } from './store.js';
 import { $, esc } from './utils.js';
 import { setHeaderStatus } from './app.js';
 
@@ -84,6 +84,13 @@ export async function initSettings(){
     </div>
   </div>
   <div class="card" style="max-width:520px;margin-top:0">
+    <h2>Tool Availability</h2>
+    <div class="hint" style="margin-bottom:12px">Turn a tool off when you're not using it and it will stop responding to chat commands and redeems. When off, viewers who try get the message you set below. Note: channel point redeems still spend the viewer's points — turn the reward off in Twitch if you want to stop/refund those.</div>
+    <div id="settToolList"></div>
+    <button class="btn-sm mt" id="settToolsSave">Save Tool Settings</button>
+    <span class="ok" id="settToolsOk" style="display:none;margin-left:8px">Saved!</span>
+  </div>
+  <div class="card" style="max-width:520px;margin-top:0">
     <h2>Bot / User Ignore List</h2>
     <div class="hint" style="margin-bottom:8px">One username per line. These users are ignored everywhere — chat overlay, credits, and any future tools. Great for bots like Nightbot or StreamElements. The Chat tab's quick-Ignore button also adds to this list.</div>
     <textarea id="settIgnoreList" style="height:90px">${esc(ignoreList().join('\n'))}</textarea>
@@ -103,6 +110,7 @@ export async function initSettings(){
   <div class="hint" style="margin-top:8px;text-align:center">Data saved to %APPDATA%\\com.spark.app\\spark-data.json</div>`;
 
   wireSettingsEvents();
+  renderToolToggles();
 
   invoke('get_app_version').then(v=>{
     const el2=$('settVersion'); if(el2) el2.textContent=`SPARK v${v}`;
@@ -136,6 +144,21 @@ function wireSettingsEvents(){
   $('settReconnectChat').addEventListener('click',async()=>{
     try{ await invoke('twitch_connect_chat',{channel:store.twitch.login}); setTwStatus('on','Chat reconnected'); }
     catch(e){ setTwStatus('err',String(e)); }
+  });
+
+  // Tool availability toggles
+  $('settToolsSave').addEventListener('click',()=>{
+    const tg = toolToggles();
+    const list = $('settToolList');
+    list.querySelectorAll('input.tool-en').forEach(cb=>{
+      const id = cb.dataset.id;
+      const box = list.querySelector('input.tool-msg[data-id="'+id+'"]');
+      if(!tg[id]) tg[id] = {};
+      tg[id].enabled = cb.checked;
+      tg[id].msg = box ? box.value : '';
+    });
+    saveToolToggles();
+    const ok=$('settToolsOk'); if(ok){ ok.style.display='inline'; setTimeout(()=>ok.style.display='none',1500); }
   });
 
   // Global ignore list
@@ -188,4 +211,48 @@ function wireSettingsEvents(){
   });
 }
 
-function showBackupMsg(msg){ const e=$('settBackupMsg'); if(e){ e.textContent=msg; e.style.display='block'; } const o=$('settBackupOk'); if(o) o.st
+function renderToolToggles(){
+  const el=$('settToolList'); if(!el) return;
+  const tg=toolToggles();
+  el.innerHTML = TOOL_DEFS.map(t=>{
+    const cur = tg[t.id] || {};
+    const on  = cur.enabled !== false;
+    const msg = (typeof cur.msg === 'string' && cur.msg) ? cur.msg : toolDefaultMsg(t.id);
+    return '<div style="padding:10px 0;border-bottom:1px solid #322a55">'
+      + '<label class="checkrow" style="margin:0;font-weight:600"><input type="checkbox" class="tool-en" data-id="'+t.id+'" '+(on?'checked':'')+'> '+esc(t.label)+'</label>'
+      + '<input type="text" class="tool-msg" data-id="'+t.id+'" value="'+esc(msg)+'" placeholder="Message shown in chat when off" style="width:100%;font-size:.82rem;margin-top:6px">'
+      + '</div>';
+  }).join('');
+}
+
+function showBackupMsg(msg){ const e=$('settBackupMsg'); if(e){ e.textContent=msg; e.style.display='block'; } const o=$('settBackupOk'); if(o) o.style.display='none'; }
+function showBackupOk(msg){ const e=$('settBackupOk'); if(e){ e.textContent=msg; e.style.display='block'; } const w=$('settBackupMsg'); if(w) w.style.display='none'; }
+
+async function startAuth(){
+  const clientId=$('settTwClientId').value.trim();
+  if(!clientId){ alert('Paste your Client ID first.'); return; }
+  setTwStatus('wait','Requesting device code…');
+  try{
+    const dev=await invoke('twitch_start_device_auth',{clientId});
+    $('settTwDeviceBox').style.display='block';
+    $('settTwCode').textContent=dev.user_code;
+    const uri=dev.verification_uri||'https://www.twitch.tv/activate';
+    const link=$('settTwLink'); link.textContent=uri; link.dataset.url=uri;
+    setTwStatus('wait','Waiting for browser authorization…');
+    pollDevice(clientId,dev.device_code,dev.interval||5);
+  }catch(e){ setTwStatus('err',String(e)); }
+}
+
+async function pollDevice(clientId,deviceCode,interval){
+  const tick=async()=>{
+    try{
+      const r=await invoke('twitch_poll_device_auth',{clientId,deviceCode});
+      if(r.status==='authorized'){
+        $('settTwDeviceBox').style.display='none';
+        await afterConnected(); return;
+      }
+    }catch(e){}
+    setTimeout(tick,Math.max(interval,3)*1000);
+  };
+  setTimeout(tick,Math.max(interval,3)*1000);
+}

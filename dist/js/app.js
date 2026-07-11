@@ -375,4 +375,19 @@ async function boot(){
   await listen('twitch-chat', ev=>{
     window.dispatchEvent(new CustomEvent('spark-chat', {detail: ev.payload}));
   });
-  await listen('twitch-goal',
+  await listen('twitch-goal', ev=>{
+    window.dispatchEvent(new CustomEvent('spark-goal', {detail: ev.payload}));
+  });
+
+  // fire-and-forget — never blocks or breaks boot
+  checkForUpdate();
+}
+
+boot().catch(err => {
+  console.error('SPARK boot failed:', err);
+  document.body.innerHTML = '<div style="padding:40px;color:#ff5d73;font-family:monospace;background:#1b1530;min-height:100vh">'
+    + '<h2 style="color:#ffc83d;margin-bottom:16px">SPARK failed to start</h2>'
+    + '<pre style="white-space:pre-wrap;font-size:.85rem">' + (err && err.stack ? err.stack : String(err)) + '</pre>'
+    + '<p style="margin-top:20px;color:#a79fc7">Please share this error message.</p>'
+    + '</div>';
+});

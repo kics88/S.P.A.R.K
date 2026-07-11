@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, toolBlocked } from './store.js';
 import { $, esc, renderOverlayBar, slog, slogDump, slogClear } from './utils.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -270,6 +270,31 @@ async function queueWatchdog() {
   }
 }
 
+// Normalise a title for fuzzy comparison: lowercase, drop bracketed/parenthetical
+// asides (feat, remix, official video, artist tags), collapse to alphanumeric
+// tokens. Used to recognise a song across a YouTube -> YouTube Music id remap.
+function normTitle(s) {
+  return (s || '')
+    .toLowerCase()
+    .replace(/\(.*?\)|\[.*?\]/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+// True if two titles almost certainly refer to the same song. Tolerant enough
+// to survive "SAINt JHN - Dangerous" vs "Dangerous", strict enough that a Pear
+// autoplay track (a different song) won't collide with a queued request.
+function titlesMatch(a, b) {
+  a = normTitle(a); b = normTitle(b);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  const ta = new Set(a.split(' ').filter(w => w.length > 2));
+  const tb = b.split(' ').filter(w => w.length > 2);
+  if (!ta.size || !tb.length) return false;
+  const common = tb.filter(w => ta.has(w)).length;
+  return common / Math.max(ta.size, tb.length) >= 0.6;
+}
+
 // Shared by the WS VIDEO_CHANGED handler and the health-check watchdog.
 // Returns true if the new video was our queue[0] (an SR queue item).
 function advanceQueue(vid) {
@@ -282,7 +307,27 @@ function advanceQueue(vid) {
     if (lastInsertedId === vid) lastInsertedId = null;
     renderQueue();
     persist();
+  } else if (vid && queue.length > 0 && queue[0].videoId === lastInsertedId
+             && titlesMatch(queue[0].title, currentSong && currentSong.title)) {
+    // ID REMAP: we inserted queue[0] right after the previous song and the
+    // track that actually started is the SAME song under a different videoId
+    // (YouTube Music swaps a linked youtu.be/watch id for its catalog id on
+    // playback). Strict === missed it, so match by title to still attribute +
+    // dequeue. Autoplay interlopers are rejected here because their title
+    // won't match the queued song.
+    wasQueueItem = true;
+    slog('queue', 'REMAP matched q0 vid=' + queue[0].videoId + ' -> playing vid=' + vid + ' "' + (currentSong && currentSong.title || '') + '"');
+    currentRequester = queue[0].requester || '';
+    if (lastInsertedId === queue[0].videoId) lastInsertedId = null;
+    queue.shift();
+    renderQueue();
+    persist();
   } else {
+    if (vid && queue.length > 0 && queue[0].videoId === lastInsertedId) {
+      // Our inserted song's slot advanced to a different id but the title
+      // didn't match — log it so we can tune titlesMatch if it was a real remap.
+      slog('queue', 'NO-MATCH: playing vid=' + vid + ' "' + (currentSong && currentSong.title || '') + '" != q0 vid=' + queue[0].videoId + ' "' + (queue[0].title || '') + '"');
+    }
     currentRequester = '';
   }
   // Line up the next SR song (deduped — safe to call on every video change)
@@ -386,7 +431,7 @@ async function fetchQueueTitles() {
         if (r.ok) {
           const d = await r.json();
           item.title     = d.title       || item.videoId;
-          item.author    = d.author_name || '';
+          item.author    = (d.author_name || '').replace(/\s*-\s*Topic$/i, '');
           item.thumbnail = 'https://img.youtube.com/vi/' + item.videoId + '/mqdefault.jpg';
           if (item._pendingChatMsg) {
             item._pendingChatMsg = false;
@@ -508,6 +553,7 @@ window.addEventListener('spark-redeem', e => {
   const match = cfg.anyRedeem || d.reward_id === cfg.rewardId;
   slog('twitch', 'redeem by ' + d.user_name + ' reward=' + d.reward_id + ' match=' + match + ' hasInput=' + !!d.user_input);
   if (!match) return;
+  if (toolBlocked('songrequest', d.user_name)) return;
   if (d.user_input) requestSong(d.user_input, d.user_name, d.user_id, false, true);
 });
 async function srCmdAllowed(d) {
@@ -528,6 +574,7 @@ window.addEventListener('spark-chat', async e => {
   if (!cfg.allowSrCommand) return;
   const msg = (d.message || '').trim();
   if (!msg.toLowerCase().startsWith('!sr ')) return;
+  if (toolBlocked('songrequest', d.display || d.username)) return;
   const allowed = await srCmdAllowed(d);
   slog('twitch', '!sr from ' + (d.display || d.username) + ' allowed=' + allowed);
   if (!allowed) return;

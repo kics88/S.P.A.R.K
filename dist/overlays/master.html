@@ -214,3 +214,15 @@ setTool('master');
 on('visibility', ev=>{
   if(ev.tool) applyVisibility(ev.tool, !!ev.visible);
 });
+on('_snapshot', snap=>{
+  if(!snap || !snap.visibility) return;
+  // Apply visibility state from the server snapshot (set by app on boot)
+  Object.entries(snap.visibility).forEach(([tool, visible])=>{
+    applyVisibility(tool, visible);
+  });
+});
+
+startPolling();
+</script>
+</body>
+</html>

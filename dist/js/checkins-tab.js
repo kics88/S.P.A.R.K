@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, toolBlocked } from './store.js';
 import { $, esc, renderOverlayBar } from './utils.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -106,7 +106,10 @@ function playSfx(path){
 // ── Twitch redeems ────────────────────────────────────────────────────────────
 window.addEventListener('spark-redeem', e=>{
   const d=e.detail;
-  handleRedeem(d.reward_id, d.user_id, d.user_name||'someone');
+  const rewardId=d.reward_id;
+  const targetsCheckin = (firstClaim.rewardId===rewardId) || configs.some(c=>c.anyRedeem||c.rewardId===rewardId);
+  if(targetsCheckin && toolBlocked('checkins', d.user_name||'someone')) return;
+  handleRedeem(rewardId, d.user_id, d.user_name||'someone');
 });
 
 // ── Config card rendering ─────────────────────────────────────────────────────

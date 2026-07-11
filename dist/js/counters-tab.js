@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, toolBlocked } from './store.js';
 import { $, esc, renderOverlayBar } from './utils.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -99,6 +99,7 @@ window.addEventListener('spark-chat', async e => {
     (c.resetCmd && cmd === c.resetCmd.toLowerCase())
   );
   if(!match) return;
+  if(toolBlocked('counters', d.display||d.username)) return;
 
   if(match.resetCmd && cmd === match.resetCmd.toLowerCase()){
     if(!(d.is_mod || d.is_broadcaster)) return; // reset is always mod+/broadcaster, regardless of permission setting

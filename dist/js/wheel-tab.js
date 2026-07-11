@@ -1,4 +1,4 @@
-import { store }    from './store.js';
+import { store, toolBlocked }    from './store.js';
 import { $, esc, flash, initDrag, renderOverlayBar } from './utils.js';
 import { drawWheel, winningIndex, angleForIndex, THEMES, defaultThemeNames } from './wheel.js';
 
@@ -331,6 +331,7 @@ function wireWheelEvents(){
       const want=redeemSettings.rewardId||$('wRewardSelect').value;
       if(want && d.reward_id!==want) return;
     }
+    if(toolBlocked('wheel', d.user_name)) return;
     queue.push(d.user_name||'someone');
     processQueue();
   });

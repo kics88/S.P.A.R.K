@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, toolBlocked } from './store.js';
 import { $, esc, flash, renderOverlayBar } from './utils.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -219,6 +219,8 @@ function wireEvents(){
     const msg=(d.message||'').trim().toLowerCase();
     const isMod=d.is_mod||d.is_broadcaster;
     const word=cfg.entryWord.toLowerCase();
+    const isGaCmd = msg===`!${word}` || msg===`!${word} open` || msg===`!${word} close` || msg==='!draw';
+    if(isGaCmd && toolBlocked('giveaway', d.display||d.username)) return;
     // entry command
     if(msg===`!${word}`) tryEnter(d.username,d.user_id,d.display,d.is_mod,d.is_sub);
     // mod controls

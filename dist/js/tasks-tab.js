@@ -1,4 +1,4 @@
-import { store } from './store.js';
+import { store, toolBlocked } from './store.js';
 import { $, esc, flash, renderOverlayBar } from './utils.js';
 import { initPomodoro, renderPomodoroUI, pomoData, pomoTasksChanged } from './pomodoro.js';
 
@@ -433,6 +433,7 @@ function attachChatListener(){
     const raw=(d.message||'').trim();
     const lower=raw.toLowerCase();
     const isMod=d.is_mod||d.is_broadcaster;
+    if(lower.startsWith('!task')){ if(toolBlocked('tasks', d.display||d.username)) return; }
     if(lower.startsWith('!task add ')){
       const text=raw.slice(10).trim();
       addTask(d.username,d.user_id,d.display||d.username,text,d.is_mod,d.is_sub,d.is_broadcaster);

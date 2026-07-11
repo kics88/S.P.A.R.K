@@ -529,4 +529,12 @@ fn restore_data(shared: State<Shared>, data: Value) -> Result<(), String> {
         if let Some(v) = data.get("goals")    { d.goals    = v.clone(); }
         if let Some(v) = data.get("checkins")    { d.checkins    = v.clone(); }
         if let Some(v) = data.get("songrequest") { d.songrequest = v.clone(); }
-        if let Some(
+        if let Some(v) = data.get("chat")     { d.chat     = v.clone(); }
+        if let Some(v) = data.get("counters") { d.counters = v.clone(); }
+        if let Some(v) = data.get("credits")  { d.credits  = v.clone(); }
+        if let Some(v) = data.get("settings") { d.settings = v.clone(); }
+        path = shared.data_path.lock().unwrap().clone();
+        save_to_disk(&path, &d);
+    }
+    Ok(())
+}
