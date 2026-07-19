@@ -459,6 +459,11 @@ function goalHandler(e){
     if(cfg.alerts.sub.enabled===false) return;
     invoke('chat_overlay_alert', { event:{ type:'alert', kind:'sub', name:d.user_name } });
     playSfx(cfg.alerts.sub.sound);
+  } else if(d.kind==='bits'){
+    // Cheers → D.I.Y alert widgets (the Chat overlay ignores unknown kinds).
+    invoke('chat_overlay_alert', { event:{ type:'alert', kind:'cheer', name:d.user_name, amount:d.amount } });
+  } else if(d.kind==='raid'){
+    invoke('chat_overlay_alert', { event:{ type:'alert', kind:'raid', name:d.user_name, amount:d.amount } });
   }
 }
 

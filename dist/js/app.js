@@ -8,6 +8,7 @@ import { initSongRequest } from './songrequest-tab.js';
 import { initChat }       from './chat-tab.js';
 import { initCounters }   from './counters-tab.js';
 import { initCredits }    from './credits-tab.js';
+import { initDiy }        from './diy-tab.js';
 import { initSettings }   from './settings-tab.js';
 import { store }          from './store.js';
 
@@ -235,6 +236,39 @@ const HELP_CONTENT = {
       + '<p>The chatter list resets automatically the first time SPARK connects to Twitch after launch, or manually via <strong>Reset Session</strong>. Use <strong>Preview (sample names)</strong> to test styling before your chatter list has built up.</p>'
       + '<h3>OBS Overlay</h3>'
       + '<p>Copy the <strong>Overlay URL</strong> and add it as a Browser Source in OBS, then click <strong>Play Credits</strong> when you\'re ready to run them (e.g. at the end of stream).</p>'
+  },
+  diy: {
+    title: 'D.I.Y Widgets',
+    html: '<h3>Overview</h3>'
+      + '<p>Build your own chat and alert overlays right here. Add a widget, style it with the visual Designer or with your own CSS, then copy its link into OBS. Everything runs on your live Twitch chat and events inside SPARK.</p>'
+      + '<h3>Adding a widget</h3>'
+      + '<p>Click <strong>Chat widget</strong> or <strong>Alert widget</strong>. Each one you add gets its own overlay URL. Use <strong>Edit</strong> to open it, and the preview on the right runs demo traffic so you can style without waiting for real activity.</p>'
+      + '<h3>Designer or Custom CSS</h3>'
+      + '<p>Every widget has two modes and you can switch any time. What you set in one mode does not change the other.</p>'
+      + '<ul>'
+      + '<li><strong>Designer</strong> gives you colour pickers and sliders for background, opacity, text colour, accent colour, corners, padding, font size, glow, drop shadow, plus entrance and exit animations with a speed.</li>'
+      + '<li><strong>Custom CSS</strong> lets you write your own styles. Each widget lists the class names you can target. For chat you can style each chatter level on its own with <code>.msg.role-sub</code>, <code>.msg.role-vip</code>, <code>.msg.role-mod</code>, and the rest.</li>'
+      + '<li><strong>Copy my design as CSS</strong> turns your current Designer look into editable CSS and switches you to Custom CSS.</li>'
+      + '</ul>'
+      + '<h3>Chat options</h3>'
+      + '<ul>'
+      + '<li><strong>Scroll direction</strong> sets which way chat moves and where new messages appear.</li>'
+      + '<li><strong>Name styling</strong> lets you give each role an icon (an emoji or an image), a custom colour, and a glow. Tick <strong>CC</strong> to turn the custom colour on for that role. Leave CC off and that viewer keeps their normal Twitch colour.</li>'
+      + '<li><strong>Show events in chat</strong> puts follows, subs, and raids into the chat as highlighted lines. You can word each one and style the highlight.</li>'
+      + '<li><strong>Tilt</strong> leans messages for a scattered look, with an option to alternate the angle.</li>'
+      + '<li><strong>Gradient background</strong> fades the sides of each message.</li>'
+      + '<li><strong>Gap</strong>, <strong>Max messages kept</strong>, and <strong>Hide after</strong> set the spacing, how many messages stay on screen, and whether old ones fade out on a timer. Chat scrolls off the top and old messages are removed so it never fills memory.</li>'
+      + '<li>Anyone in your Settings ignore list never shows, so bots stay out.</li>'
+      + '</ul>'
+      + '<h3>Alert options</h3>'
+      + '<ul>'
+      + '<li><strong>Show these alerts</strong> picks which of Follow, Sub, Bits, and Raid this box shows. Make separate boxes for different events if you want.</li>'
+      + '<li><strong>Alert text</strong> lets you write the Title and Message for each event. Use {name} and {amount} and they fill in automatically.</li>'
+      + '<li><strong>On screen</strong> sets how many seconds an alert stays before it leaves.</li>'
+      + '<li><strong>Sound</strong> plays a file you pick the moment the alert fires. Any length works.</li>'
+      + '</ul>'
+      + '<h3>Testing and OBS</h3>'
+      + '<p>Use the <strong>Test</strong> buttons to fire a message or alert on the preview and on your live overlay. When you like it, copy the widget <strong>URL</strong> and add it as a Browser Source in OBS.</p>'
   }
 };
 
@@ -318,6 +352,7 @@ async function boot(){
   store.chat        = data.chat        || {};
   store.counters    = data.counters    || {};
   store.credits     = data.credits     || {};
+  store.diy         = data.diy         || { widgets: [] };
   store.settings    = data.settings    || {};
   store.twitch_tokens = data.twitch_tokens || {};
 
@@ -352,6 +387,7 @@ async function boot(){
   await initChat();
   await initCounters();
   await initCredits();
+  await initDiy();
 
   // global Twitch event forwarding
   await listen('twitch-status', ev=>{

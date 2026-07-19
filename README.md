@@ -34,6 +34,8 @@ Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch stre
 
 * **Credits** - end of stream rolling credits for mods, VIPs, subs, followers and chatters, plus a free text special thanks section. Only viewers who actually chatted get included. Pick a style preset or customize colors, fonts, scroll direction/speed, and section order yourself.
 
+* **D.I.Y** - build your own chat and alert widgets. Style them with the visual designer or write your own CSS, pick a Google Font, and watch the live preview update while you edit. Alerts cover follows, subs, bits and raids with editable text and a sound. Chat can scroll any direction, tilt, show events inline, and stay single line if you want. Copy the widget URL into OBS and it runs off your live Twitch chat.
+
 Every tool has its own OBS browser source overlay, plus a master overlay that shows them all in one source. 
 _**NOTE:** The master overlay is buggy and a work in progress_
 

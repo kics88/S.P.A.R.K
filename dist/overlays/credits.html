@@ -25,6 +25,7 @@ const scrollEl = document.getElementById('crScroll');
 let cfg = defaultCfg();
 let loopTimer = null;
 let loadedFonts = new Set();
+let isPlaying = false; // true while a real scroll animation is running — blocks settings-pushes (live chat) from restarting it mid-roll
 
 function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
@@ -136,6 +137,7 @@ function sectionInlineHtml(sec){
 
 function playRoster(payload){
   clearTimeout(loopTimer);
+  isPlaying = true;
   const roster = payload.roster || [];
   currentRoster = roster;
   if(payload.layout) deepMerge(cfg.layout, payload.layout);
@@ -167,6 +169,8 @@ function playRoster(payload){
 
     if(cfg.scroll.loop){
       loopTimer = setTimeout(()=>playRoster(payload), duration*1000 + 500);
+    } else {
+      loopTimer = setTimeout(()=>{ isPlaying = false; currentRoster = []; }, duration*1000 + 500);
     }
     return;
   }
@@ -193,6 +197,8 @@ function playRoster(payload){
 
   if(cfg.scroll.loop){
     loopTimer = setTimeout(()=>playRoster(payload), duration*1000 + 500);
+  } else {
+    loopTimer = setTimeout(()=>{ isPlaying = false; currentRoster = []; }, duration*1000 + 500);
   }
 }
 
@@ -235,7 +241,10 @@ on('settings', ev => {
   // styling — presets, fonts, colours, etc. — instead of leaving it stale
   // until the next explicit Play/Preview click. (Preview iframes are driven
   // by postMessage instead — see above.)
-  if(currentRoster.length && !isPreview){
+  // ...but never restart while a roll is actively animating — live chat pushes
+  // a fresh 'settings' every ~1.5s, and restarting mid-roll is what made the
+  // credits reset at every section boundary.
+  if(currentRoster.length && !isPreview && !isPlaying){
     playRoster({ roster: currentRoster, layout: cfg.layout, scroll: cfg.scroll });
   }
 });

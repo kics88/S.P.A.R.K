@@ -22,6 +22,7 @@ pub struct AppData {
     #[serde(default)] pub chat:     Value,
     #[serde(default)] pub counters: Value,
     #[serde(default)] pub credits:  Value,
+    #[serde(default)] pub diy:      Value,
     #[serde(default)] pub settings: Value,
     #[serde(default)] pub twitch_tokens: Value,
 }
@@ -131,6 +132,7 @@ fn load_all_data(shared: State<Shared>) -> Value {
         "chat":     d.chat,
         "counters": d.counters,
         "credits":  d.credits,
+        "diy":      d.diy,
         "settings": d.settings,
         "twitch_tokens": d.twitch_tokens,
     })
@@ -373,6 +375,23 @@ fn overlay_url(shared: State<Shared>) -> Value {
     })
 }
 
+// ── D.I.Y commands ────────────────────────────────────────────────────────────
+
+// Stores the whole D.I.Y state ({ widgets: [...] }). The overlay server reads
+// widgets straight from AppData when serving /diy?id=X, so no separate cache.
+#[tauri::command]
+fn save_diy(shared: State<Shared>, data: Value) {
+    shared.data.lock().unwrap().diy = data;
+    do_save(&shared);
+}
+
+// Tells a live D.I.Y overlay (in OBS) to reload itself so design changes show
+// without a manual browser-source refresh.
+#[tauri::command]
+fn diy_overlay_refresh(shared: State<Shared>, id: String) {
+    shared.push_overlay_event("chat", json!({"type":"diy-refresh","widget":id}));
+}
+
 // ── App entry ─────────────────────────────────────────────────────────────────
 
 pub fn run() {
@@ -434,6 +453,7 @@ pub fn run() {
             save_chat, chat_overlay_settings, chat_overlay_message, chat_overlay_alert, chat_overlay_emotes,
             save_counters, counters_overlay_update,
             save_credits, credits_overlay_settings, credits_overlay_play,
+            save_diy, diy_overlay_refresh,
             save_app_settings,
             backup_data, restore_data,
             overlay_url,

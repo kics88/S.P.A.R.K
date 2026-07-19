@@ -43,6 +43,7 @@ let cfg = {
   srCooldownSeconds: 300,
   overlayStyle: 'card',
   noShadow: false,
+  seekColor: '#ffc83d',
   maxPerUser: 2,
   maxDurationSeconds: 600,
   showQueueOverlay: false,
@@ -628,6 +629,7 @@ function pushOverlayState() {
       isPlaying: playing,
       style:     cfg.overlayStyle || 'card',
       noShadow:  !!cfg.noShadow,
+      seekColor: cfg.seekColor || '#ffc83d',
       requester: currentRequester || '',
     }
   }).catch(() => {});
@@ -784,6 +786,9 @@ function buildLeft() {
   +   '<label class="mt">Overlay style</label>'
   +   '<select id="srOverlayStyle">' + styleOpts + '</select>'
   +   '<label class="checkrow mt"><input type="checkbox" id="srNoShadow" ' + (cfg.noShadow ? 'checked' : '') + '> Disable card shadow</label>'
+  +   '<div class="row mt" style="align-items:center;gap:8px"><label style="margin:0">Seek bar colour</label>'
+  +   '<input type="color" id="srSeekColor" value="' + esc(cfg.seekColor || '#ffc83d') + '" style="width:46px;height:26px;padding:0;border:none;background:none">'
+  +   '<button class="btn-sm" id="srSeekColorReset" title="Back to default">Reset</button></div>'
   +   '<label class="checkrow mt"><input type="checkbox" id="srShowQueueOverlay" ' + (cfg.showQueueOverlay ? 'checked' : '') + '> Show queue overlay</label>'
   +   '<div class="hint">Add <code>http://localhost:4747/srqueue</code> as a browser source in OBS.</div>'
   +   '<button class="btn-sm btn-gold full mt" id="srSaveSettings">Save Settings</button>'
@@ -838,6 +843,8 @@ function buildLeft() {
   $('srCmdWho').addEventListener('change',            e => { cfg.srCmdWho         = e.target.value;   persist(); });
   $('srOverlayStyle').addEventListener('change',      e => { cfg.overlayStyle     = e.target.value;   persist(); forceOverlayRepush(); });
   $('srNoShadow').addEventListener('change',          e => { cfg.noShadow         = e.target.checked; persist(); forceOverlayRepush(); });
+  $('srSeekColor').addEventListener('input',          e => { cfg.seekColor        = e.target.value;   persist(); forceOverlayRepush(); });
+  $('srSeekColorReset').addEventListener('click',     () => { cfg.seekColor = '#ffc83d'; $('srSeekColor').value = '#ffc83d'; persist(); forceOverlayRepush(); });
   $('srShowQueueOverlay').addEventListener('change',  e => { cfg.showQueueOverlay = e.target.checked; persist(); pushQueueOverlay(); });
   $('srSaveSettings').addEventListener('click', () => {
     cfg.rewardId           = $('srRewardSelect').value;
@@ -850,6 +857,7 @@ function buildLeft() {
     cfg.maxDurationSeconds = Math.max(0, parseInt($('srMaxDuration').value) || 0) * 60;
     cfg.overlayStyle       = $('srOverlayStyle').value;
     cfg.noShadow           = $('srNoShadow').checked;
+    cfg.seekColor          = $('srSeekColor').value || '#ffc83d';
     cfg.showQueueOverlay   = $('srShowQueueOverlay').checked;
     persist(); pushQueueOverlay(); forceOverlayRepush();
     const btn = $('srSaveSettings'), o = btn.textContent;

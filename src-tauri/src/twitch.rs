@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tauri::{Emitter, Manager, State};
 use crate::Shared;
 
-const SCOPES: &str = "channel:read:redemptions channel:read:subscriptions moderator:read:followers chat:read user:write:chat";
+const SCOPES: &str = "channel:read:redemptions channel:read:subscriptions moderator:read:followers bits:read chat:read user:write:chat";
 
 fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
@@ -323,6 +323,7 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
                             let _ = subscribe(access, client_id, &sid, "channel.subscription.gift", "1", json!({"broadcaster_user_id":uid}));
                             let _ = subscribe(access, client_id, &sid, "channel.subscription.message", "1", json!({"broadcaster_user_id":uid}));
                             let _ = subscribe(access, client_id, &sid, "channel.bits.use", "1", json!({"broadcaster_user_id":uid}));
+                            let _ = subscribe(access, client_id, &sid, "channel.raid", "1", json!({"to_broadcaster_user_id":uid}));
                         }
                         "session_reconnect" => {
                             reconnect_url = v["payload"]["session"]["reconnect_url"].as_str().map(|s| s.to_string());
@@ -395,6 +396,15 @@ fn run_eventsub(app: &tauri::AppHandle, stop: std::sync::Arc<std::sync::atomic::
                                     "kind": "bits",
                                     "user_name": ev["user_name"],
                                     "amount": bits,
+                                }));
+                            }
+                            // Raid (into this channel)
+                            if sub_type == "channel.raid" {
+                                let viewers = ev["viewers"].as_u64().unwrap_or(0);
+                                let _ = app.emit("twitch-goal", json!({
+                                    "kind": "raid",
+                                    "user_name": ev["from_broadcaster_user_name"],
+                                    "amount": viewers,
                                 }));
                             }
                         }

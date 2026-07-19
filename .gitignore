@@ -12,3 +12,6 @@ src-tauri/gen/
 npm-debug.log*
 Thumbs.db
 .DS_Store
+
+# Internal planning / design notes (not for public repo)
+docs/

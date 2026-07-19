@@ -15,7 +15,10 @@ let activeListName = null;
 let pendingRemoval = null;
 let queue = [];
 let winnerAudio = null;
+let spinAudio = null;
 let soundSettings = { enabled:false, path:null };
+let spinSoundSettings = { enabled:false, path:null };
+let announceSettings = { enabled:false, message:'🎉 The wheel landed on {winner}!' };
 let overlaySettings = { winnerSeconds:5 };
 let redeemSettings = { usePoints:true, anyReward:false, rewardId:'' };
 
@@ -39,7 +42,8 @@ function persist(){
       lists, activeListName,
       activeState:{ items:state.items, fullItems:state.fullItems, themeName:state.themeName,
         customColors:state.customColors, removeWinner:state.removeWinner },
-      sound: soundSettings, overlaySettings, redeem: redeemSettings,
+      sound: soundSettings, spinSound: spinSoundSettings, announce: announceSettings,
+      overlaySettings, redeem: redeemSettings,
     }});
     pushOverlay(); // debounced with the save — render() fires persist() constantly
   },120);
@@ -114,13 +118,19 @@ function doSpin(redeemer){
   // pending winner was just removed above, the overlay still shows the old
   // items (the update normally rides the debounced persist AFTER the spin
   // ends) — so push the current items first, then fire the spin.
+  // Fire the sound at the same moment the overlay is told to spin so the SFX
+  // lines up with the overlay animation (not the earlier in-app tick).
   pushOverlay()
     .catch(()=>{})
-    .then(()=> invoke('wheel_overlay_spin',{ finalAngle, winner:winnerName, winnerSeconds:ws }));
+    .then(()=>{
+      invoke('wheel_overlay_spin',{ finalAngle, winner:winnerName, winnerSeconds:ws });
+      playSpinSound();
+    });
   animateTo(finalAngle,()=>{
     pendingRemoval = winnerName;
     $('wheelWinner').innerHTML = esc(winnerName)+(redeemer?`<small>spun by ${esc(redeemer)}</small>`:'');
     playSound();
+    announceWinner(winnerName, redeemer);
     state.spinning=false;
     render();
     if(queue.length) setTimeout(processQueue,5000);
@@ -157,6 +167,34 @@ function playSound(){
   }catch(e){ showSoundWarn('Could not load sound file.'); }
 }
 function showSoundWarn(m){ const w=$('wSoundWarn'); if(w){ w.textContent='⚠ '+m; w.style.display='block'; }}
+
+// Spin SFX — plays once when a spin starts, stopped when the wheel lands.
+function playSpinSound(){
+  stopSpinSound();
+  if(!spinSoundSettings.enabled||!spinSoundSettings.path) return;
+  try{
+    const src = window.__TAURI__.core.convertFileSrc(spinSoundSettings.path);
+    const a = new Audio(src);
+    a.onerror=()=>{ const w=$('wSpinSoundWarn'); if(w){ w.textContent='⚠ Spin sound missing or incompatible.'; w.style.display='block'; }};
+    a.play().catch(()=>{});
+    spinAudio = a;
+  }catch(e){}
+}
+function stopSpinSound(){
+  if(spinAudio){ try{ spinAudio.pause(); spinAudio.currentTime=0; }catch(e){} spinAudio=null; }
+}
+
+// Post the winner to Twitch chat if enabled. {winner} and {spinner} are substituted.
+function announceWinner(winnerName, redeemer){
+  if(!announceSettings.enabled) return;
+  if(!store.twitch.connected){ return; }
+  let msg = (announceSettings.message||'').replace(/\{winner\}/gi, winnerName).replace(/\{spinner\}/gi, redeemer||'').replace(/\s+/g,' ').trim();
+  if(!msg) return;
+  const w=$('wAnnounceWarn'); if(w) w.style.display='none';
+  invoke('twitch_send_chat_message',{ message: msg }).catch(e=>{
+    if(w){ w.textContent='⚠ Chat: '+e; w.style.display='block'; }
+  });
+}
 
 // ── Saved lists ────────────────────────────────────────────────────────────────
 function refreshListSelect(){
@@ -211,6 +249,21 @@ function buildLeftColumn(){
     <div class="row mt"><button class="btn-sm" id="wPickSound">Choose MP3…</button><button class="btn-sm btn-ghost" id="wTestSound">Test</button><button class="btn-sm btn-ghost" id="wClearSound">Clear</button></div>
     <div class="hint" id="wSoundPath">No file selected.</div>
     <div class="warn" id="wSoundWarn" style="display:none"></div>
+  </div>
+  <div class="card">
+    <h2>Spin Sound</h2>
+    <label class="checkrow" style="margin-top:0"><input type="checkbox" id="wSpinSoundEnabled"> Play sound while spinning</label>
+    <div class="row mt"><button class="btn-sm" id="wPickSpinSound">Choose MP3…</button><button class="btn-sm btn-ghost" id="wTestSpinSound">Test</button><button class="btn-sm btn-ghost" id="wClearSpinSound">Clear</button></div>
+    <div class="hint" id="wSpinSoundPath">No file selected.</div>
+    <div class="warn" id="wSpinSoundWarn" style="display:none"></div>
+  </div>
+  <div class="card">
+    <h2>Announce Winner in Chat</h2>
+    <label class="checkrow" style="margin-top:0"><input type="checkbox" id="wAnnounceEnabled"> Post winner to Twitch chat</label>
+    <label for="wAnnounceMsg" style="margin-top:8px">Message — <code>{winner}</code> = winner, <code>{spinner}</code> = who redeemed</label>
+    <input type="text" id="wAnnounceMsg" placeholder="🎉 The wheel landed on {winner}!" style="width:100%">
+    <div class="hint">Requires Twitch connected (Settings). Sends as your channel.</div>
+    <div class="warn" id="wAnnounceWarn" style="display:none"></div>
   </div>
   <div class="card">
     <h2>OBS Overlay</h2>
@@ -304,6 +357,18 @@ function wireWheelEvents(){
   $('wClearSound').addEventListener('click',()=>{ soundSettings.path=null;soundSettings.enabled=false;$('wSoundEnabled').checked=false;$('wSoundPath').textContent='No file selected.';persist(); });
   $('wTestSound').addEventListener('click',()=>{ const p=soundSettings.path;soundSettings.enabled=true;playSound();soundSettings.enabled=!!p; });
   $('wSoundEnabled').addEventListener('change',e=>{ soundSettings.enabled=e.target.checked;persist(); });
+  // spin sound
+  $('wPickSpinSound').addEventListener('click',async()=>{
+    const f=await dialog.open({multiple:false,filters:[{name:'Audio',extensions:['mp3','wav','ogg','m4a']}]});
+    if(!f)return; spinSoundSettings.path=f;spinSoundSettings.enabled=true;$('wSpinSoundEnabled').checked=true;
+    $('wSpinSoundPath').textContent=f;$('wSpinSoundWarn').style.display='none';persist();
+  });
+  $('wClearSpinSound').addEventListener('click',()=>{ spinSoundSettings.path=null;spinSoundSettings.enabled=false;$('wSpinSoundEnabled').checked=false;$('wSpinSoundPath').textContent='No file selected.';persist(); });
+  $('wTestSpinSound').addEventListener('click',()=>{ const en=spinSoundSettings.enabled;spinSoundSettings.enabled=true;playSpinSound();spinSoundSettings.enabled=en; });
+  $('wSpinSoundEnabled').addEventListener('change',e=>{ spinSoundSettings.enabled=e.target.checked;persist(); });
+  // announce winner in chat
+  $('wAnnounceEnabled').addEventListener('change',e=>{ announceSettings.enabled=e.target.checked;persist(); });
+  $('wAnnounceMsg').addEventListener('input',e=>{ announceSettings.message=e.target.value;persist(); });
   // overlay settings
   $('wWinnerSecs').addEventListener('change',e=>{ let v=parseInt(e.target.value);if(isNaN(v)||v<1)v=1;if(v>60)v=60;e.target.value=v;overlaySettings.winnerSeconds=v;persist(); });
   // spin
@@ -366,6 +431,8 @@ export async function initWheel(){
   const d=store.wheel;
   lists=d.lists||{};
   soundSettings=Object.assign({enabled:false,path:null},d.sound||{});
+  spinSoundSettings=Object.assign({enabled:false,path:null},d.spinSound||{});
+  announceSettings=Object.assign({enabled:false,message:'🎉 The wheel landed on {winner}!'},d.announce||{});
   overlaySettings=Object.assign({winnerSeconds:5},d.overlaySettings||{});
   redeemSettings=Object.assign({usePoints:true,anyReward:false,rewardId:''},d.redeem||{});
   $('wUsePoints').checked=redeemSettings.usePoints;
@@ -380,6 +447,10 @@ export async function initWheel(){
   $('wRemoveWinner').checked=state.removeWinner;
   $('wSoundEnabled').checked=soundSettings.enabled;
   $('wSoundPath').textContent=soundSettings.path||'No file selected.';
+  $('wSpinSoundEnabled').checked=spinSoundSettings.enabled;
+  $('wSpinSoundPath').textContent=spinSoundSettings.path||'No file selected.';
+  $('wAnnounceEnabled').checked=announceSettings.enabled;
+  $('wAnnounceMsg').value=announceSettings.message||'';
   $('wWinnerSecs').value=overlaySettings.winnerSeconds;
   const ts=$('wThemeSelect'); if(ts) ts.value=state.themeName;
   refreshListSelect();
