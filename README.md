@@ -14,8 +14,9 @@ Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch stre
 * **Timers** - countdown or stopwatch timers, started manually, by redeem, or by chat command.
 <img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/3d60c022-a721-4fcb-8d3c-6f9014eaff49" />
 
-* **Tasks** - shared to do list for you and your viewers using `!task` commands.
-<img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/29a18c4a-b3eb-4c02-bbef-09b1bc2d9657" />
+* **Tasks** - shared to do list for you and your viewers using `!task` commands as well as a pomodoro timer with its own commands. 
+<img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/9aa019e3-fc39-402f-b2c4-f7dfc2a0f0e7" />
+
 
 * **Goals** - animated progress bars for followers, subs, bits, or custom chat commands.
 <img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/4cb8d09e-6f96-4a48-8852-b4be404f899e" />
@@ -33,6 +34,7 @@ Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch stre
 <img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/93be422b-6426-4a96-a714-5f82f8770c6b" />
 
 * **Credits** - end of stream rolling credits for mods, VIPs, subs, followers and chatters, plus a free text special thanks section. Only viewers who actually chatted get included. Pick a style preset or customize colors, fonts, scroll direction/speed, and section order yourself.
+<img width="1402" height="932" alt="image" src="https://github.com/user-attachments/assets/25c70d9b-39b1-43ba-92a2-df9347fce06b" />
 
 * **D.I.Y** - build your own chat and alert widgets. Style them with the visual designer or write your own CSS, pick a Google Font, and watch the live preview update while you edit. Alerts cover follows, subs, bits and raids with editable text and a sound. Chat can scroll any direction, tilt, show events inline, and stay single line if you want. Copy the widget URL into OBS and it runs off your live Twitch chat.
 
@@ -68,4 +70,3 @@ npm run build
 ```
 
 **NOTE:**Needs Node and Rust installed. The installer ends up in `src-tauri\target\release\bundle`.
-
