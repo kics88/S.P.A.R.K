@@ -71,7 +71,7 @@ function renderItemList(){
   if(!state.items.length){ el.innerHTML='<div class="hint">Wheel is empty.</div>'; return; }
   const cols = colors(), tw = state.items.reduce((s,it)=>s+(it.weight||1),0);
   el.innerHTML = state.items.map((it,i)=>{
-    const p=(it.weight/tw)*100;
+    const p=((it.weight||1)/tw)*100; // legacy items may predate weights
     const pct=p>=1?p.toFixed(0):p>=0.1?p.toFixed(1):p.toFixed(2);
     return `<div class="item-row" data-i="${i}">
       <span class="drag-handle" data-i="${i}">⠿</span>
@@ -260,7 +260,7 @@ function buildLeftColumn(){
   <div class="card">
     <h2>Announce Winner in Chat</h2>
     <label class="checkrow" style="margin-top:0"><input type="checkbox" id="wAnnounceEnabled"> Post winner to Twitch chat</label>
-    <label for="wAnnounceMsg" style="margin-top:8px">Message — <code>{winner}</code> = winner, <code>{spinner}</code> = who redeemed</label>
+    <label for="wAnnounceMsg" style="margin-top:8px">Message: <code>{winner}</code> = winner, <code>{spinner}</code> = who redeemed</label>
     <input type="text" id="wAnnounceMsg" placeholder="🎉 The wheel landed on {winner}!" style="width:100%">
     <div class="hint">Requires Twitch connected (Settings). Sends as your channel.</div>
     <div class="warn" id="wAnnounceWarn" style="display:none"></div>
@@ -331,8 +331,19 @@ function wireWheelEvents(){
   $('wItemList').addEventListener('click',e=>{
     const b=e.target.closest('button');if(!b||state.spinning)return;
     const i=+b.dataset.i,act=b.dataset.act;
-    if(act==='inc') state.items[i].weight=Math.min(16,state.items[i].weight*2);
-    else if(act==='dec') state.items[i].weight=Math.max(0.0001,state.items[i].weight/2);
+    // Snap to exactly 1 when doubling/halving crosses it, so an item can
+    // always get back to equal odds (0.0001 doublings never land on 1 otherwise).
+    if(act==='inc'){
+      const old=state.items[i].weight||1;
+      let w=Math.min(16,old*2);
+      if(old<1&&w>1) w=1;
+      state.items[i].weight=w;
+    } else if(act==='dec'){
+      const old=state.items[i].weight||1;
+      let w=Math.max(0.0001,old/2);
+      if(old>1&&w<1) w=1;
+      state.items[i].weight=w;
+    }
     else if(act==='del') state.items.splice(i,1);
     render();
   });

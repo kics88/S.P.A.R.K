@@ -1,4 +1,4 @@
-import { store, ignoreList } from './store.js';
+import { store, ignoreList, cachedFollower, setCachedFollower } from './store.js';
 import { $, esc, renderOverlayBar, initDrag } from './utils.js';
 import {
   defaultCfg, deepMerge, applyPreset, PRESETS,
@@ -22,7 +22,6 @@ let saveTimer = null;
 let chatters = {};
 let lastActivityAt = 0;
 const SESSION_STALE_MS = 6 * 3600 * 1000;
-let followerCache = {};  // userId -> bool
 let avatarCache = {};    // userId -> url
 let hasResetThisBoot = false;
 
@@ -143,7 +142,7 @@ function presetPickerHtml(){
   const customNames = Object.keys(cfg.customPresets||{});
   return `<div class="card">
     <h2>Style Preset</h2>
-    <div class="hint">Pick a full look, then fine-tune anything below. Colours/fonts only — your sections, headings, and lists are untouched.</div>
+    <div class="hint">Pick a full look, then fine-tune anything below. Colours and fonts only. Your sections, headings, and lists are untouched.</div>
     <div class="row mt" style="flex-wrap:wrap;gap:6px">
       ${names.map(n=>`<button class="btn-sm crPresetBtn ${cfg.preset===n?'btn-gold':'btn-ghost'}" data-preset="${esc(n)}">${esc(n)}</button>`).join('')}
       <button class="btn-sm crPresetBtn ${cfg.preset==='Custom'?'btn-gold':'btn-ghost'}" data-preset="Custom">Custom</button>
@@ -320,10 +319,10 @@ function sectionCardHtml(key){
     <div class="mt">${field('Font (blank = use global font)', selectInput('crFont_'+key, [{v:'',l:'(use global font)'}, ...GOOGLE_FONTS.map(f=>({v:f,l:f}))], s.font||''))}</div>
     <div class="mt">${checkInput('crDiv_'+key, s.divider, 'Show divider line above this section')}</div>
     ${isSpecial ? `
-      <label class="mt">Special Thanks messages (one per line, free text — not tied to chat)</label>
+      <label class="mt">Special Thanks messages (one per line, free text, not tied to chat)</label>
       <textarea id="crSpecialThanks" style="height:90px">${esc((cfg.specialThanks||[]).join('\n'))}</textarea>
     ` : `
-      <label class="mt">Manually add names (one per line — shown in addition to detected chatters)</label>
+      <label class="mt">Manually add names (one per line, shown in addition to detected chatters)</label>
       <textarea class="crManualAdd" data-key="${key}" style="height:70px">${esc((s.manualAdd||[]).join('\n'))}</textarea>
     `}
   </div>`;
@@ -361,7 +360,7 @@ function wireSectionCard(key){
 function excludeListHtml(){
   return `<div class="card">
     <h2>Exclude List <span class="tag">credits only</span></h2>
-    <div class="hint">One username per line. Excluded from the credits only — bots you want ignored everywhere belong in Settings → Bot / User Ignore List (applied here automatically).</div>
+    <div class="hint">One username per line. Excluded from the credits only. Bots you want ignored everywhere belong in Settings under Bot / User Ignore List (applied here automatically).</div>
     <textarea id="crExcludeList" style="height:80px">${esc((cfg.excludeList||[]).join('\n'))}</textarea>
   </div>`;
 }
@@ -387,13 +386,13 @@ function generalSettingsHtml(){
       ${horizontal ? field('Dock position', selectInput('crDock', DOCKS.map(v=>({v,l:DOCK_LABELS[v]})), sc.dock)) : ''}
       ${horizontal ? field('Ticker band height (px)', numInput('crBandHeight', sc.bandHeight, 40, 400, 5)) : ''}
     </div>
-    <div class="hint mt">${horizontal ? 'Sideways mode renders a ticker band docked to the top, middle, or bottom of the screen — good for a bottom-of-screen credits crawl.' : 'Classic mode scrolls the full list vertically up or down the whole screen.'}</div>
+    <div class="hint mt">${horizontal ? 'Sideways mode renders a ticker band docked to the top, middle, or bottom of the screen. Good for a bottom of screen credits crawl.' : 'Classic mode scrolls the full list vertically up or down the whole screen.'}</div>
     <div class="row mt" style="gap:14px;flex-wrap:wrap">
       ${checkInput('crLoop', sc.loop, 'Loop when finished')}
       ${!horizontal ? checkInput('crFadeEdges', sc.fadeEdges, 'Fade top/bottom edges') : ''}
       ${checkInput('crAutoplay', sc.autoplay, 'Auto-play when this overlay page loads')}
     </div>
-    <div class="hint">Auto-play fires the moment the overlay page loads — in OBS, enable "Shutdown source when not visible" on this Browser Source so switching to its scene reloads (and re-triggers) it.</div>
+    <div class="hint">Auto-play fires the moment the overlay page loads. In OBS, enable "Shutdown source when not visible" on this Browser Source so switching to its scene reloads (and re-triggers) it.</div>
   </div>
   <div class="card">
     <h2>Layout &amp; Background</h2>
@@ -479,7 +478,7 @@ function renderSessionRoster(){
     <div class="mt"><b>${esc(sec.heading)}</b> <span class="tag">${sec.names.length}</span>
       <div class="hint" style="word-break:break-word">${sec.names.map(n=>esc(n.name)).join(', ')}</div>
     </div>`).join('')
-    : '<div class="hint mt">Nothing collected yet — names appear here as viewers chat.</div>';
+    : '<div class="hint mt">Nothing collected yet. Names appear here as viewers chat.</div>';
 }
 function wireSessionCard(){
   on('crResetSession','click', ()=>{
@@ -556,13 +555,15 @@ function playCredits(sampleMode){
 }
 
 // ── Twitch chat tracking ─────────────────────────────────────────────────────
+// Shared persistent cache (store.settings.followerCache) — same one chat uses.
 async function checkFollower(userId){
   if(!userId) return false;
-  if(followerCache[userId] !== undefined) return followerCache[userId];
+  const c = cachedFollower(userId);
+  if(c !== undefined) return c;
   if(!store.twitch.userId) return false;
   try{
     const r = await invoke('twitch_check_follower', { userId, broadcasterId: store.twitch.userId });
-    followerCache[userId] = !!r;
+    setCachedFollower(userId, !!r);
     return !!r;
   }catch(e){ return false; }
 }

@@ -69,10 +69,15 @@ function drawBar(canvas, bar, preview){
 // ── Progress ──────────────────────────────────────────────────────────────────
 function addProgress(bar, amount){
   bar.current = (bar.current||0) + amount;
-  const ms = bar.milestones[bar.currentMilestone];
+  // A single big jump (e.g. a huge cheer) can cross several milestones —
+  // advance through every one it clears, celebrating once.
+  let ms = bar.milestones[bar.currentMilestone];
   if(ms && bar.current >= ms.target){
     celebrate(bar);
-    if(bar.currentMilestone < bar.milestones.length-1) bar.currentMilestone++;
+    while(bar.currentMilestone < bar.milestones.length-1
+          && bar.current >= bar.milestones[bar.currentMilestone].target){
+      bar.currentMilestone++;
+    }
   }
   refreshBar(bar);
   persist();
@@ -214,7 +219,10 @@ function openEditor(bar){
 
     const themeOpts=Object.keys(THEMES).map(k=>`<option value="${k}" ${(bar._theme||'Custom')===k?'selected':''}>${k}</option>`).join('');
     const fontOpts=GOOGLE_FONTS.map(f=>`<option value="${f}" ${bar.font===f?'selected':''}>${f}</option>`).join('');
-    const msHtml=()=>bar.milestones.map((m,i)=>`
+    // Work on a draft — milestone edits only land on the bar when Save is
+    // clicked, so Cancel/X actually cancels.
+    const msDraft=JSON.parse(JSON.stringify(bar.milestones||[]));
+    const msHtml=()=>msDraft.map((m,i)=>`
       <div style="display:flex;gap:8px;margin-bottom:6px">
         <input type="number" class="gm-t" data-i="${i}" value="${m.target}" style="width:90px" placeholder="Target">
         <input type="text"   class="gm-l" data-i="${i}" value="${esc(m.label||'')}" style="flex:1" placeholder="Label (optional)">
@@ -313,8 +321,8 @@ function openEditor(bar){
         showTarget: document.getElementById('ge-tgt')?.checked,
         showPct:    document.getElementById('ge-pct')?.checked,
         textOutside:document.getElementById('ge-out')?.checked ?? true,
-        milestones: bar.milestones,
-        currentMilestone: bar.currentMilestone,
+        milestones: msDraft,
+        currentMilestone: Math.max(0, Math.min(bar.currentMilestone, msDraft.length-1)),
       };
     }
 
@@ -336,15 +344,15 @@ function openEditor(bar){
 
     function renderMilestones(){
       const el=document.getElementById('ge-ms'); if(!el) return;
-      el.innerHTML=bar.milestones.map((m,i)=>`
+      el.innerHTML=msDraft.map((m,i)=>`
         <div style="display:flex;gap:8px;margin-bottom:6px">
           <input type="number" class="gm-t" data-i="${i}" value="${m.target}" style="width:90px" placeholder="Target">
           <input type="text"   class="gm-l" data-i="${i}" value="${esc(m.label||'')}" style="flex:1" placeholder="Label (optional)">
           <button class="btn-sm btn-ghost gm-d" data-i="${i}">Remove</button>
         </div>`).join('');
-      el.querySelectorAll('.gm-t').forEach(inp=>inp.addEventListener('input',e=>{ bar.milestones[+e.target.dataset.i].target=+e.target.value||0; livePreview(); }));
-      el.querySelectorAll('.gm-l').forEach(inp=>inp.addEventListener('input',e=>{ bar.milestones[+e.target.dataset.i].label=e.target.value; }));
-      el.querySelectorAll('.gm-d').forEach(btn=>btn.addEventListener('click',e=>{ bar.milestones.splice(+e.target.dataset.i,1); renderMilestones(); livePreview(); }));
+      el.querySelectorAll('.gm-t').forEach(inp=>inp.addEventListener('input',e=>{ msDraft[+e.target.dataset.i].target=+e.target.value||0; livePreview(); }));
+      el.querySelectorAll('.gm-l').forEach(inp=>inp.addEventListener('input',e=>{ msDraft[+e.target.dataset.i].label=e.target.value; }));
+      el.querySelectorAll('.gm-d').forEach(btn=>btn.addEventListener('click',e=>{ msDraft.splice(+e.target.dataset.i,1); renderMilestones(); livePreview(); }));
     }
     renderMilestones();
 
@@ -356,7 +364,7 @@ function openEditor(bar){
     updateCustomColourVisibility();
     setTimeout(livePreview, 30);
 
-    document.getElementById('ge-add-ms').addEventListener('click',()=>{ bar.milestones.push({target:0,label:''}); renderMilestones(); });
+    document.getElementById('ge-add-ms').addEventListener('click',()=>{ msDraft.push({target:0,label:''}); renderMilestones(); });
     document.getElementById('ge-sfx-pick').addEventListener('click',async()=>{
       const f=await dialog.open({multiple:false,filters:[{name:'Audio',extensions:['mp3','wav','ogg','m4a']}]});
       if(f){ sfxPath=f; document.getElementById('ge-sfx-name').textContent=f.split(/[\\/]/).pop(); }
@@ -386,6 +394,8 @@ function openEditor(bar){
       bar.textOutside  = document.getElementById('ge-out').checked;
       bar.celebSound   = sfxPath;
       bar.useChannelEmotes = document.getElementById('ge-emotes').checked;
+      bar.milestones   = msDraft.length ? msDraft : [{target:100,label:''}];
+      bar.currentMilestone = Math.max(0, Math.min(bar.currentMilestone, bar.milestones.length-1));
       if(bar.useChannelEmotes) fetchEmotes(bar);
       loadGoogleFont(bar.font);
       modal.remove();

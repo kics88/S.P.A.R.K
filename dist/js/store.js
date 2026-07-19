@@ -44,6 +44,65 @@ export function saveIgnoreList(){
   window.dispatchEvent(new CustomEvent('spark-ignorelist'));
 }
 
+// ── Persistent follower cache ───────────────────────────────────────────────
+// userId -> [isFollower(0|1), cachedAtMs], stored in settings so it survives
+// restarts. Lets chat forward messages instantly (no per-message API wait) —
+// at worst a viewer's very first message ever renders in the default style.
+// 3-day TTL: long enough to cover restarts, short enough that an unfollow
+// doesn't keep follower styling forever.
+const FOLLOW_TTL_MS = 3*24*3600*1000;
+let followSaveTimer = null;
+
+function followMap(){
+  if(!store.settings.followerCache || typeof store.settings.followerCache !== 'object') store.settings.followerCache = {};
+  return store.settings.followerCache;
+}
+
+// true / false when cached and fresh, undefined when unknown.
+export function cachedFollower(userId){
+  if(!userId) return undefined;
+  const e = followMap()[userId];
+  if(!e) return undefined;
+  if(Date.now() - (e[1]||0) > FOLLOW_TTL_MS){ delete followMap()[userId]; return undefined; }
+  return !!e[0];
+}
+
+export function setCachedFollower(userId, val){
+  if(!userId) return;
+  const m = followMap();
+  // prune expired entries when the map gets big
+  if(Object.keys(m).length > 2000){
+    const now = Date.now();
+    for(const k in m){ if(now - (m[k][1]||0) > FOLLOW_TTL_MS) delete m[k]; }
+  }
+  m[userId] = [val?1:0, Date.now()];
+  clearTimeout(followSaveTimer);
+  followSaveTimer = setTimeout(()=>{
+    window.__TAURI__.core.invoke('save_app_settings', { data: store.settings }).catch(()=>{});
+  }, 5000);
+}
+
+// ── Master overlay membership ───────────────────────────────────────────────
+// Which tools render on the master overlay (Settings owns the UI). Persisted
+// in settings.masterTools: { toolId: true }. Everything defaults to off —
+// per-tab overlay bars are always the tool's unique URL now.
+
+export const MASTER_TOOL_DEFS = [
+  { id:'wheel',      label:'Wheel' },
+  { id:'giveaway',   label:'Giveaway' },
+  { id:'timers',     label:'Timers' },
+  { id:'tasks',      label:'Tasks (Co-work)' },
+  { id:'pomodoro',   label:'Pomodoro' },
+  { id:'goals',      label:'Goals' },
+  { id:'checkins',   label:'Check-ins' },
+  { id:'nowplaying', label:'Now Playing' },
+];
+
+export function masterTools(){
+  if(!store.settings.masterTools || typeof store.settings.masterTools !== 'object') store.settings.masterTools = {};
+  return store.settings.masterTools;
+}
+
 // ── Per-tool enable/disable ─────────────────────────────────────────────────
 // Lets the streamer turn off a tool's chat commands / redeems when they aren't
 // using that tab. State lives in store.settings.toolToggles keyed by tool id:

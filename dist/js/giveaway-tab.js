@@ -21,6 +21,7 @@ let open = false;
 let entrants = []; // [{username, userId, display, count}]
 let cooldowns = {}; // userId -> timestamp of last entry
 let winnerHideTimer = null;
+let winners = []; // this session's past winners: [{name, at}] — newest first
 
 // ── Persist ────────────────────────────────────────────────────────────────────
 let saveTimer = null;
@@ -38,8 +39,17 @@ function pushOverlay(){
 }
 
 // ── Entry handling ─────────────────────────────────────────────────────────────
+// In-flight guard: the awaited follower lookup yields, so two rapid messages
+// from the same user could both pass the duplicate check and enter twice.
+const entering = new Set();
 async function tryEnter(username, userId, display, isMod, isSub){
   if(!open) return;
+  if(entering.has(userId)) return;
+  entering.add(userId);
+  try{ await doEnter(username, userId, display, isMod, isSub); }
+  finally{ entering.delete(userId); }
+}
+async function doEnter(username, userId, display, isMod, isSub){
   const now = Date.now();
   // Eligibility: mods/broadcaster always pass; otherwise must match at least one allowed category
   if(!isMod){
@@ -90,7 +100,20 @@ function draw(){
     winnerHideTimer = setTimeout(()=>{ win.style.display='none'; }, (cfg.winnerSeconds||8)*1000);
   }
   updateGiveawayPreview(winner.display);
+  winners.unshift({ name: winner.display, at: Date.now() });
+  if(winners.length > 20) winners.pop();
+  renderWinnerHistory();
   renderEntrantList();
+}
+
+// Session-only log so "wait, who won?" is never a problem after the overlay
+// banner disappears. Cleared on app restart.
+function renderWinnerHistory(){
+  const el=$('gaWinnerHistory'); if(!el) return;
+  if(!winners.length){ el.innerHTML=''; return; }
+  const t=(ms)=>{ const d=new Date(ms); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  el.innerHTML='<div class="hint" style="margin-top:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.7rem">Winners this session</div>'
+    + winners.map(w=>`<div style="display:flex;gap:8px;font-size:.82rem;padding:2px 0"><span class="tag">${t(w.at)}</span><span>${esc(w.name)}</span></div>`).join('');
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────────
@@ -148,6 +171,7 @@ function buildLeft(){
     </div>
     <div class="ok" id="gaWinner" style="display:none;font-size:1.1rem;text-align:center;margin-top:8px"></div>
     <div class="hint mt" id="gaEntrantCount">0 entrants</div>
+    <div id="gaWinnerHistory"></div>
   </div>
   <div class="card">
     <h2>Settings</h2>

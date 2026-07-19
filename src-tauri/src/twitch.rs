@@ -224,6 +224,19 @@ pub fn twitch_disconnect(shared: State<Shared>) {
     shared.twitch_running.store(false, Ordering::SeqCst);
 }
 
+// Full log out: stop the sockets AND forget the saved tokens, so the app
+// doesn't silently reconnect as the same account on next launch.
+#[tauri::command]
+pub fn twitch_logout(shared: State<Shared>) {
+    shared.twitch_stop.store(true, Ordering::SeqCst);
+    shared.chat_stop.store(true, Ordering::SeqCst);
+    shared.twitch_running.store(false, Ordering::SeqCst);
+    let path = shared.data_path.lock().unwrap().clone();
+    let mut d = shared.data.lock().unwrap();
+    d.twitch_tokens = serde_json::json!({});
+    crate::save_to_disk(&path, &d);
+}
+
 #[tauri::command]
 pub fn twitch_connect_eventsub(app: tauri::AppHandle, shared: State<Shared>) -> Result<(), String> {
     // Cheap up-front check so the UI gets an immediate error if not connected —
@@ -503,14 +516,19 @@ fn run_chat(app: &tauri::AppHandle, channel: &str, stop: std::sync::Arc<std::syn
             match socket.read() {
                 Ok(Message::Text(txt)) => {
                     last_msg = Instant::now();
-                    // PING keepalive
-                    if txt.starts_with("PING") {
-                        let _ = socket.send(Message::Text(txt.replace("PING", "PONG")));
-                        continue;
-                    }
-                    // Parse PRIVMSG
-                    if let Some(msg) = parse_irc(&txt) {
-                        let _ = app.emit("twitch-chat", msg);
+                    // One WS frame can carry SEVERAL IRC lines separated by
+                    // \r\n (Twitch batches under load) — handle every line, or
+                    // messages get silently dropped during fast chat.
+                    for line in txt.split("\r\n").filter(|l| !l.is_empty()) {
+                        // PING keepalive
+                        if line.starts_with("PING") {
+                            let _ = socket.send(Message::Text(line.replacen("PING", "PONG", 1)));
+                            continue;
+                        }
+                        // Parse PRIVMSG
+                        if let Some(msg) = parse_irc(line) {
+                            let _ = app.emit("twitch-chat", msg);
+                        }
                     }
                 }
                 Ok(Message::Close(_)) => break,

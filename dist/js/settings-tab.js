@@ -1,4 +1,4 @@
-import { store, ignoreList, saveIgnoreList, TOOL_DEFS, toolToggles, toolDefaultMsg, saveToolToggles } from './store.js';
+import { store, ignoreList, saveIgnoreList, TOOL_DEFS, toolToggles, toolDefaultMsg, saveToolToggles, MASTER_TOOL_DEFS, masterTools } from './store.js';
 import { $, esc } from './utils.js';
 import { setHeaderStatus } from './app.js';
 
@@ -71,28 +71,41 @@ export async function initSettings(){
         <button class="btn-sm btn-twitch" id="settReconnectChat">Reconnect Chat</button>
         <button class="btn-sm btn-ghost" id="settTwLogout">Log out</button>
       </div>
-      <div class="hint mt">Chat is read automatically for <code>!</code> commands. EventSub for redeems is started per-tool.</div>
+      <div class="hint mt">Chat is read automatically for <code>!</code> commands. Redeems (EventSub) start automatically on connect.</div>
     </div>
   </div>
   <div class="card" style="max-width:520px;margin-top:0">
-    <h2>Overlay</h2>
-    <div class="hint">
-      <b>Master overlay</b>: shows all tools in one browser source.<br>
-      Each tool tab also has a toggle to use its own unique overlay URL instead.<br><br>
-      Add the URL as a <b>Browser Source</b> in OBS / Meld / Streamlabs.<br>
-      The app must be running for the overlay to work.
+    <h2>Master Overlay</h2>
+    <div class="hint" style="margin-bottom:8px">
+      One browser source that shows several tools at once. Tick the tools you want on it.
+      Every tool tab still has its own unique URL, so you can mix and match.<br><br>
+      To arrange the layout, open the URL in a normal browser or use <b>Interact</b> in OBS.
+      Hover a panel, drag the title bar to move it, drag the corner triangle to resize.
+      Panels snap to a 10px grid. Hold <b>Shift</b> to place them freely.
+    </div>
+    <div class="row" style="gap:6px;align-items:center;margin-bottom:10px">
+      <span>URL:</span><input type="text" id="settMasterUrl" readonly style="flex:1;font-size:.8rem">
+      <button class="btn-sm" id="settMasterCopy">Copy</button>
+    </div>
+    <div id="settMasterTools" style="display:grid;grid-template-columns:1fr 1fr;gap:2px 14px"></div>
+    <div class="hint" style="margin-top:8px">The master overlay supports these 8 tools for now. Chat, Counters, Credits, Song Queue and D.I.Y widgets have their own URLs only.</div>
+    <div class="row mt" style="align-items:center;gap:8px">
+      <label style="margin:0">Editor border colour</label>
+      <input type="color" id="settMasterBorder" value="#ffc83d" style="width:46px;height:26px;padding:0;border:none;background:none">
+      <button class="btn-sm" id="settMasterBorderReset" title="Back to gold">Reset</button>
+      <span class="hint" style="margin:0">for the move and resize handles. Pick whatever is easiest to see against your scene.</span>
     </div>
   </div>
   <div class="card" style="max-width:520px;margin-top:0">
     <h2>Tool Availability</h2>
-    <div class="hint" style="margin-bottom:12px">Turn a tool off when you're not using it and it will stop responding to chat commands and redeems. When off, viewers who try get the message you set below. Note: channel point redeems still spend the viewer's points — turn the reward off in Twitch if you want to stop/refund those.</div>
+    <div class="hint" style="margin-bottom:12px">Turn a tool off when you're not using it and it will stop responding to chat commands and redeems. When off, viewers who try get the message you set below. Note: channel point redeems still spend the viewer's points, so turn the reward off in Twitch if you want to stop those.</div>
     <div id="settToolList"></div>
     <button class="btn-sm mt" id="settToolsSave">Save Tool Settings</button>
     <span class="ok" id="settToolsOk" style="display:none;margin-left:8px">Saved!</span>
   </div>
   <div class="card" style="max-width:520px;margin-top:0">
     <h2>Bot / User Ignore List</h2>
-    <div class="hint" style="margin-bottom:8px">One username per line. These users are ignored everywhere — chat overlay, credits, and any future tools. Great for bots like Nightbot or StreamElements. The Chat tab's quick-Ignore button also adds to this list.</div>
+    <div class="hint" style="margin-bottom:8px">One username per line. These users are ignored everywhere: chat overlay, credits, and any future tools. Great for bots like Nightbot or StreamElements. The Chat tab's quick-Ignore button also adds to this list.</div>
     <textarea id="settIgnoreList" style="height:90px">${esc(ignoreList().join('\n'))}</textarea>
     <button class="btn-sm mt" id="settIgnoreSave">Save Ignore List</button>
     <span class="ok" id="settIgnoreOk" style="display:none;margin-left:8px">Saved!</span>
@@ -111,6 +124,15 @@ export async function initSettings(){
 
   wireSettingsEvents();
   renderToolToggles();
+  renderMasterCard();
+
+  // Re-assert master state on boot — the server's visibility map and border
+  // colour are runtime-only, so push the saved settings every launch.
+  {
+    const mt = masterTools();
+    MASTER_TOOL_DEFS.forEach(t=>invoke('set_tool_visibility',{ tool:t.id, visible: mt[t.id]===true }).catch(()=>{}));
+    invoke('set_master_border',{ color: store.settings.masterBorderColor || '#ffc83d' }).catch(()=>{});
+  }
 
   invoke('get_app_version').then(v=>{
     const el2=$('settVersion'); if(el2) el2.textContent=`SPARK v${v}`;
@@ -135,8 +157,9 @@ export async function initSettings(){
 function wireSettingsEvents(){
   $('settTwAuthBtn').addEventListener('click',startAuth);
   $('settTwLogout').addEventListener('click',()=>{
-    invoke('twitch_disconnect');
+    invoke('twitch_logout'); // stops sockets AND clears saved tokens
     store.twitch.connected=false;
+    store.twitch_tokens={};
     $('settTwConnectedBox').style.display='none';
     $('settTwAuthBox').style.display='block';
     setTwStatus('','Not connected');
@@ -211,6 +234,43 @@ function wireSettingsEvents(){
   });
 }
 
+function renderMasterCard(){
+  const url = store.overlayUrls?.master || '';
+  const urlEl=$('settMasterUrl'); if(urlEl) urlEl.value = url;
+  $('settMasterCopy')?.addEventListener('click', ()=>navigator.clipboard.writeText(url));
+
+  const list=$('settMasterTools');
+  if(list){
+    const mt = masterTools();
+    list.innerHTML = MASTER_TOOL_DEFS.map(t=>
+      '<label class="checkrow" style="margin:4px 0"><input type="checkbox" class="master-en" data-id="'+t.id+'" '+(mt[t.id]===true?'checked':'')+'> '+esc(t.label)+'</label>'
+    ).join('');
+    list.querySelectorAll('input.master-en').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        masterTools()[cb.dataset.id] = cb.checked;
+        invoke('save_app_settings',{ data: store.settings });
+        invoke('set_tool_visibility',{ tool: cb.dataset.id, visible: cb.checked }); // master updates live
+      });
+    });
+  }
+
+  const border=$('settMasterBorder');
+  if(border){
+    border.value = store.settings.masterBorderColor || '#ffc83d';
+    border.addEventListener('input', e=>{
+      store.settings.masterBorderColor = e.target.value;
+      invoke('save_app_settings',{ data: store.settings });
+      invoke('set_master_border',{ color: e.target.value });
+    });
+    $('settMasterBorderReset')?.addEventListener('click', ()=>{
+      border.value = '#ffc83d';
+      store.settings.masterBorderColor = '#ffc83d';
+      invoke('save_app_settings',{ data: store.settings });
+      invoke('set_master_border',{ color: '#ffc83d' });
+    });
+  }
+}
+
 function renderToolToggles(){
   const el=$('settToolList'); if(!el) return;
   const tg=toolToggles();
@@ -239,18 +299,32 @@ async function startAuth(){
     const uri=dev.verification_uri||'https://www.twitch.tv/activate';
     const link=$('settTwLink'); link.textContent=uri; link.dataset.url=uri;
     setTwStatus('wait','Waiting for browser authorization…');
-    pollDevice(clientId,dev.device_code,dev.interval||5);
+    pollDevice(clientId,dev.device_code,dev.interval||5,dev.expires_in||1800);
   }catch(e){ setTwStatus('err',String(e)); }
 }
 
-async function pollDevice(clientId,deviceCode,interval){
+// Each Connect click supersedes any previous polling loop (authGen), and the
+// loop stops itself when the device code expires instead of polling forever.
+let authGen=0;
+async function pollDevice(clientId,deviceCode,interval,expiresIn){
+  const myGen=++authGen;
+  const deadline=Date.now()+expiresIn*1000;
+  const expired=()=>{
+    $('settTwDeviceBox').style.display='none';
+    setTwStatus('err','Code expired. Click Connect Twitch to get a new one.');
+  };
   const tick=async()=>{
+    if(myGen!==authGen) return;               // a newer Connect attempt took over
+    if(Date.now()>deadline){ expired(); return; }
     try{
       const r=await invoke('twitch_poll_device_auth',{clientId,deviceCode});
+      if(myGen!==authGen) return;
       if(r.status==='authorized'){
         $('settTwDeviceBox').style.display='none';
         await afterConnected(); return;
       }
+      const m=String(r.message||'').toLowerCase();
+      if(m.includes('expired')||m.includes('invalid device code')){ expired(); return; }
     }catch(e){}
     setTimeout(tick,Math.max(interval,3)*1000);
   };

@@ -102,6 +102,9 @@ let interpTimer=null;
 let lastProgress=0, lastDuration=1, lastPollMs=Date.now(), isPlaying=false;
 
 function fmt(s){ s=Math.floor(s||0); return Math.floor(s/60)+':'+(s%60).toString().padStart(2,'0'); }
+// Song titles/artists come from YouTube and can contain <, &, quotes — escape
+// everything before it goes into innerHTML (safe in text AND attributes).
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function pct(p,d){ return d>0?Math.min(100,(p/d)*100):0; }
 
 function seekCol(ev){ return ev.seekColor || '#ffc83d'; }
@@ -115,14 +118,16 @@ function progHTML(ev){
 
 function artHTML(ev, cls='art'){
   return ev.thumbnail
-    ? `<img class="${cls}" src="${ev.thumbnail}" onerror="this.style.display='none'">`
+    ? `<img class="${cls}" src="${esc(ev.thumbnail)}" onerror="this.style.display='none'">`
     : `<div class="art-ph">♪</div>`;
 }
 
 function buildInner(style, ev){
-  const th = ev.thumbnail || '';
-  const t  = ev.title || '';
-  const ar = (ev.author || '') + (ev.album ? ' · ' + ev.album : '');
+  const th = esc(ev.thumbnail || '');
+  const t  = esc(ev.title || '');
+  const au = esc(ev.author || '');
+  const al = esc(ev.album || '');
+  const rq = esc(ev.requester || '');
   const shadowCls = ev.noShadow ? ' no-shadow' : '';
 
   if(style==='card'){
@@ -132,8 +137,8 @@ function buildInner(style, ev){
         <div class="art-wrap">${artHTML(ev)}</div>
         <div class="meta">
           <div class="title"><span class="title-text">${t}</span></div>
-          <div class="artist">${ev.author||''}${ev.album?' · '+ev.album:''}</div>
-          ${ev.requester?`<div class="requester">Req: @${ev.requester}</div>`:''}
+          <div class="artist">${au}${al?' · '+al:''}</div>
+          ${rq?`<div class="requester">Req: @${rq}</div>`:''}
         </div>
       </div>${progHTML(ev)}</div>`;
   }
@@ -141,7 +146,7 @@ function buildInner(style, ev){
     return `<div id="npMin">
       <div class="meta">
         <div class="title"><span class="title-text">${t}</span></div>
-        <div class="artist">${ev.author||''}</div>
+        <div class="artist">${au}</div>
       </div>
       ${progHTML(ev)}</div>`;
   }
@@ -155,7 +160,7 @@ function buildInner(style, ev){
           <div class="title"><span class="title-text">${t}</span></div>
           <span class="btime"><span id="npTime">${fmt(ev.progress)}</span> / ${fmt(ev.duration)}</span>
         </div>
-        <div class="artist">${ev.author||''}${ev.requester?' · @'+ev.requester:''}</div>
+        <div class="artist">${au}${rq?' · @'+rq:''}</div>
       </div></div>`;
   }
   if(style==='blend'){
@@ -165,8 +170,8 @@ function buildInner(style, ev){
       ${artHTML(ev)}
       <div class="meta">
         <div class="title"><span class="title-text">${t}</span></div>
-        <div class="artist">${ev.author||''}${ev.album?' · '+ev.album:''}</div>
-        ${ev.requester?`<div class="requester">Req: @${ev.requester}</div>`:''}
+        <div class="artist">${au}${al?' · '+al:''}</div>
+        ${rq?`<div class="requester">Req: @${rq}</div>`:''}
       </div>
       ${progHTML(ev)}</div>`;
   }

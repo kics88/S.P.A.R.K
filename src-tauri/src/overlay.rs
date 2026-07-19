@@ -38,8 +38,11 @@ pub fn start_server(app: tauri::AppHandle) {
         let server = match server { Some(s) => s, None => return };
         app.state::<Shared>().server_port.store(chosen as u64, Ordering::SeqCst);
         let server = std::sync::Arc::new(server);
+        // 16 workers: each long-poll (/events) can hold a worker for up to 25s,
+        // and master + per-tool overlays + several D.I.Y widgets easily exceed
+        // 8 concurrent browser sources — at 8, page/sound/icon requests stalled.
         let mut workers = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..16 {
             let server = server.clone();
             let app = app.clone();
             workers.push(std::thread::spawn(move || {
@@ -158,7 +161,8 @@ fn handle(app: &tauri::AppHandle, request: tiny_http::Request) {
                         "credits"  => shared.overlay_credits.lock().unwrap().clone(),
                         _ => {
                             let vis = shared.tool_visibility.lock().unwrap().clone();
-                            serde_json::json!({ "visibility": vis }).to_string()
+                            let border = shared.master_border.lock().unwrap().clone();
+                            serde_json::json!({ "visibility": vis, "borderColor": border }).to_string()
                         }
                     }
                 } else { String::new() };

@@ -37,7 +37,7 @@ function newCounter(name){
   return {
     id: uid(), name: n, value: 0,
     incCmd: slugCmd(n), decCmd: '', resetCmd: '',
-    step: 1, min: null, max: null, allowArg: false,
+    step: 1, min: null, max: null, allowArg: false, maxArg: 10,
     permission: 'viewer', visible: true,
     theme: 'Gold',
     style: {
@@ -111,8 +111,11 @@ window.addEventListener('spark-chat', async e => {
   const isInc = match.incCmd && cmd === match.incCmd.toLowerCase();
   let delta = (match.step||1) * (isInc ? 1 : -1);
   if(match.allowArg && argRaw != null){
+    // Clamp the viewer-typed amount so "!death 999999999" can't nuke the
+    // counter — cap is per-counter (default 10).
+    const cap = Number.isFinite(match.maxArg) ? match.maxArg : 10;
     const n = parseFloat(argRaw);
-    if(!isNaN(n) && n >= 0) delta = isInc ? n : -n;
+    if(isFinite(n) && n >= 0) delta = (isInc ? 1 : -1) * Math.min(n, cap);
   }
   setValue(match, (match.value||0) + delta);
 });
@@ -231,6 +234,8 @@ function openEditor(c){
       <div><label>Who can use it</label><select id="cntEdPerm">${permOpts}</select></div>
     </div>
     <label class="checkrow mt"><input type="checkbox" id="cntEdArg" ${c.allowArg?'checked':''}> Allow a custom amount, e.g. <code>!death 3</code></label>
+    <div class="row mt" style="align-items:center;gap:8px"><label style="margin:0">Max custom amount</label><input type="number" id="cntEdMaxArg" value="${Number.isFinite(c.maxArg)?c.maxArg:10}" min="1" max="10000" style="width:80px"></div>
+    <div class="hint">Largest amount a viewer can add/subtract in one command. Bigger values are clamped to this.</div>
     <label class="checkrow mt"><input type="checkbox" id="cntEdVis" ${c.visible!==false?'checked':''}> Show on overlay</label>
 
     <hr class="sep">
@@ -286,6 +291,7 @@ function openEditor(c){
     const maxV   = $('cntEdMax').value.trim(); c.max = maxV===''?null:parseFloat(maxV);
     c.permission = $('cntEdPerm').value;
     c.allowArg   = $('cntEdArg').checked;
+    c.maxArg     = Math.max(1, parseFloat($('cntEdMaxArg').value) || 10);
     c.visible    = $('cntEdVis').checked;
     c.theme      = $('cntEdTheme').value;
 

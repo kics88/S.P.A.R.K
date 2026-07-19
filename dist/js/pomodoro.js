@@ -411,7 +411,6 @@ export function renderPomodoroUI(){
       <label class="checkrow"><input type="checkbox" id="pmShowPhase"${ov.showPhase?' checked':''}> Show phase label</label>
       <label class="checkrow"><input type="checkbox" id="pmShowTask"${ov.showTask?' checked':''}> Show focus task</label>
       <label class="checkrow"><input type="checkbox" id="pmShowMode"${ov.showMode?' checked':''}> Show mode name</label>
-      <label class="checkrow"><input type="checkbox" id="pmMaster"${ov.master?' checked':''}> Also show in master overlay</label>
     </div>
     <div class="hint" style="margin-top:8px">Chat: !pomo start · pause · resume · skip · reset · mode &lt;name&gt; (mods/broadcaster)</div>
   </div>`;
@@ -507,7 +506,7 @@ function wireUI(){
   w('pmShowPhase','change',e=>{ cfg.overlay.showPhase=e.target.checked; updatePreview(); save(); });
   w('pmShowTask','change',e=>{ cfg.overlay.showTask=e.target.checked; updatePreview(); save(); });
   w('pmShowMode','change',e=>{ cfg.overlay.showMode=e.target.checked; updatePreview(); save(); });
-  w('pmMaster','change',e=>{ cfg.overlay.master=e.target.checked; invoke('set_tool_visibility',{tool:'pomodoro',visible:e.target.checked}); save(); });
+  // (master-overlay membership moved to Settings → Master Overlay)
 }
 
 // ── Right-column live preview (mirrors the overlay layout) ────────────────────
@@ -611,6 +610,5 @@ export function initPomodoro(saved, apiObj){
   if(tickTimer) clearInterval(tickTimer);
   tickTimer=setInterval(tick,250);
   pushOverlay();
-  // Master-overlay visibility is runtime state — re-assert the saved choice on boot
-  invoke('set_tool_visibility',{ tool:'pomodoro', visible: !!cfg.overlay.master });
+  // Master-overlay membership is owned by Settings (settings.masterTools) now.
 }

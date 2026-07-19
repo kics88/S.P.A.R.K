@@ -15,3 +15,6 @@ Thumbs.db
 
 # Internal planning / design notes (not for public repo)
 docs/
+
+# Patch notes live in GitHub releases, not the repo
+PATCH_NOTES.md

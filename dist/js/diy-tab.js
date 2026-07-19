@@ -32,7 +32,7 @@ const TYPES = {
     name: 'Chat',
     font: 'Nunito',
     css:
-`/* Chat widget — edit anything below and watch the preview */
+`/* Chat widget. Edit anything below and watch the preview */
 #spark-chat {
   display: flex;
   flex-direction: column;
@@ -59,7 +59,7 @@ const TYPES = {
     name: 'Alert',
     font: 'Poppins',
     css:
-`/* Alert widget — shows on new follow / sub. Edit freely. */
+`/* Alert widget. Shows on new follows, subs, bits, raids. Edit freely. */
 body { display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
 .alert {
   text-align: center;
@@ -427,14 +427,14 @@ function renderEditor(root) {
     + (w.type === 'chat' ? cCheck('gradient', 'Gradient background (fades the sides)') : '')
     + (w.type === 'alert' ? cRange('duration', 'On screen (seconds)', 2, 15) : '')
     + '<div style="border-top:1px dashed var(--line);margin:10px 0 4px;padding-top:8px;font-size:.78rem;color:var(--muted)">Animation</div>'
-    + cSelect('animIn', 'Appears with', IN_OPTS) + cSelect('animInDir', '— slide direction', DIR_OPTS)
-    + cSelect('animOut', 'Disappears with', OUT_OPTS) + cSelect('animOutDir', '— slide direction', DIR_OPTS)
+    + cSelect('animIn', 'Appears with', IN_OPTS) + cSelect('animInDir', 'Slide direction', DIR_OPTS)
+    + cSelect('animOut', 'Disappears with', OUT_OPTS) + cSelect('animOutDir', 'Slide direction', DIR_OPTS)
     + cSelect('speed', 'Speed', SPEED_OPTS)
     + chatDesignerExtras
     + '<button class="btn-sm" id="diyCopyCss" style="margin-top:12px">Copy my design as CSS</button>';
 
   const cssPanel =
-      '<label style="font-size:.8rem;color:var(--muted)">CSS — edit and the preview updates as you type</label>'
+      '<label style="font-size:.8rem;color:var(--muted)">CSS. Edit it and the preview updates as you type</label>'
     + '<textarea id="diyCss" spellcheck="false" style="width:100%;height:320px;margin-top:4px;font-family:ui-monospace,Consolas,monospace;font-size:.8rem;line-height:1.45;white-space:pre;tab-size:2">' + esc(w.css) + '</textarea>'
     + '<p style="font-size:.72rem;color:var(--muted);margin:8px 0 0">Style hooks: '
     + (w.type === 'chat'
@@ -446,13 +446,13 @@ function renderEditor(root) {
           + cRange('maxMsg', 'Max messages kept', 3, 60)
           + cRange('hideAfter', 'Hide after (seconds, 0 = never)', 0, 120)
         : '')
-    + row('<label style="font-size:.8rem;flex:1">Exit animation time (ms) — how long your <code>.spk-out</code> rules run (0 = remove instantly)</label>'
+    + row('<label style="font-size:.8rem;flex:1">Exit animation time (ms). How long your <code>.spk-out</code> rules run (0 = remove instantly)</label>'
         + '<input type="number" id="diyCssOutMs" min="0" max="5000" step="50" value="' + (w.cssOutMs || 0) + '" style="width:90px">');
 
   // Alert text templates (per shown event) — content, works in both modes.
   const at = w.alertText || (w.alertText = JSON.parse(JSON.stringify(DEFAULT_ALERTTEXT)));
   const alertTextHtml = w.type !== 'alert' ? '' :
-      '<label style="font-size:.8rem;color:var(--muted)">Alert text — use {name} and {amount}</label>'
+      '<label style="font-size:.8rem;color:var(--muted)">Alert text. Use {name} and {amount}</label>'
     + ['follow', 'sub', 'cheer', 'raid'].map((k) => {
         const t = at[k] || DEFAULT_ALERTTEXT[k];
         return '<div style="margin:5px 0 9px">'
@@ -473,7 +473,7 @@ function renderEditor(root) {
     + '<select id="diyScroll" style="width:100%;margin:4px 0 12px">'
     + SCROLL_OPTS.map((o) => '<option value="' + o[0] + '"' + (o[0] === scrollVal ? ' selected' : '') + '>' + o[1] + '</option>').join('')
     + '</select>'
-    + '<label style="font-size:.8rem;color:var(--muted)">Name styling — icon, colour &amp; glow per role</label>'
+    + '<label style="font-size:.8rem;color:var(--muted)">Name styling: icon, colour and glow per role</label>'
     + '<div style="margin:6px 0 12px">'
     + ICON_ROLES.map(([role, label]) => {
         const val = ic[role] || '';
@@ -494,7 +494,7 @@ function renderEditor(root) {
     + '</div>'
     + '<label class="checkrow" style="margin:8px 0"><input type="checkbox" id="diyShowEvents"' + (w.showEvents ? ' checked' : '') + '> Show follows / subs / raids in chat</label>'
     + (w.showEvents
-        ? '<label style="font-size:.8rem;color:var(--muted)">Event text — use {name} and {amount}</label>'
+        ? '<label style="font-size:.8rem;color:var(--muted)">Event text. Use {name} and {amount}</label>'
           + ['follow', 'sub', 'cheer', 'raid'].map((k) =>
               '<div style="margin:4px 0"><div style="font-size:.72rem;color:var(--muted);margin-bottom:2px">' + evLabel(k) + '</div>'
               + '<input type="text" data-cet="' + k + '" value="' + esc(cet[k] != null ? cet[k] : (DEFAULT_CHATEVENTTEXT[k] || '')) + '" style="width:100%;font-size:.8rem"></div>').join('')
@@ -518,7 +518,7 @@ function renderEditor(root) {
               '<label class="checkrow" style="margin:0"><input type="checkbox" data-ev="' + k + '"'
               + (ev[k] !== false ? ' checked' : '') + '> ' + evLabel(k) + '</label>').join('')
           + '</div>'
-          + '<label style="font-size:.8rem;color:var(--muted)">Sound (plays when the alert fires — any length)</label>'
+          + '<label style="font-size:.8rem;color:var(--muted)">Sound (plays when the alert fires, any length)</label>'
           + '<div style="display:flex;gap:6px;align-items:center;margin:6px 0 12px">'
           + '<button class="btn-sm" id="diySoundPick">Choose sound…</button>'
           + '<span style="flex:1;font-size:.78rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'
@@ -526,7 +526,7 @@ function renderEditor(root) {
           + (w.sound ? '<button class="btn-sm" id="diySoundClear">Clear</button>' : '')
           + '</div>'
         : '')
-    + '<label style="font-size:.8rem;color:var(--muted)">Test — fires on the preview and any live OBS source</label>'
+    + '<label style="font-size:.8rem;color:var(--muted)">Test. Fires on the preview and any live OBS source</label>'
     + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 12px">'
     + (w.type === 'alert'
         ? '<button class="btn-sm" data-test="follow">Test Follow</button>'

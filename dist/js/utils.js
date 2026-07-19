@@ -26,31 +26,13 @@ export function fmtTime(secs){
   return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
 }
 
-export function overlayUrlForMode(mode, tool, urls){
-  if(mode==='unique') return urls[tool]||'';
-  return urls.master||'';
-}
-
+// Every tab shows its own unique URL. Master-overlay membership is configured
+// in Settings (Master Overlay card), not per-tab.
 export function renderOverlayBar(modeSelId, urlInputId, copyBtnId, tool, urls){
-  const sel = $(modeSelId), inp = $(urlInputId), btn = $(copyBtnId);
-  if(!sel||!inp||!btn) return;
-  const { invoke } = window.__TAURI__.core;
-  // Restore last choice (default: unique — master is opt-in)
-  const memKey = 'spark_overlay_mode_' + tool;
-  try{
-    const saved = localStorage.getItem(memKey);
-    if(saved === 'master' || saved === 'unique') sel.value = saved;
-    else sel.value = 'unique';
-  }catch(e){ sel.value = 'unique'; }
-  function update(){
-    inp.value = overlayUrlForMode(sel.value, tool, urls);
-    try{ localStorage.setItem(memKey, sel.value); }catch(e){}
-    // tell master overlay whether to show this tool
-    invoke('set_tool_visibility', { tool, visible: sel.value === 'master' });
-  }
-  sel.addEventListener('change', update);
+  const inp = $(urlInputId), btn = $(copyBtnId);
+  if(!inp||!btn) return;
+  inp.value = urls[tool]||'';
   btn.addEventListener('click', ()=>navigator.clipboard.writeText(inp.value));
-  update(); // run once on init to set initial visibility
 }
 
 // ── Safe diagnostic logging ───────────────────────────────────────────────────

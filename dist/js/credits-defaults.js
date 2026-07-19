@@ -31,7 +31,7 @@ export const NAME_ORDER_LABELS = { 'first-chat':'Order chatted', 'alpha':'Alphab
 export const SCROLL_DIRS = ['up','down','left','right'];
 export const SCROLL_DIR_LABELS = {
   up:'Upward (classic credits)', down:'Downward',
-  left:'Sideways — leftward ticker', right:'Sideways — rightward ticker',
+  left:'Sideways (leftward ticker)', right:'Sideways (rightward ticker)',
 };
 export const DOCKS = ['top','middle','bottom'];
 export const DOCK_LABELS = { top:'Top of screen', middle:'Middle of screen', bottom:'Bottom of screen' };

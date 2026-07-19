@@ -1,4 +1,4 @@
-import { store, isIgnored, addIgnore } from './store.js';
+import { store, isIgnored, addIgnore, cachedFollower, setCachedFollower } from './store.js';
 import { $, esc, renderOverlayBar } from './utils.js';
 import {
   defaultCfg, deepMerge, applyPreset, PRESETS, GOOGLE_FONTS,
@@ -17,15 +17,16 @@ cfg.preset = 'Custom';
 let activeRole = 'everyone';
 let liveLog = []; // {username, display, message, ignored}
 let saveTimer = null;
-let followerCache = {}; // userId -> bool, session-lifetime cache to avoid hammering the follow-check API
 
+// Persistent cache (store.settings.followerCache) — survives restarts.
 async function checkFollower(userId){
   if(!userId) return false;
-  if(followerCache[userId] !== undefined) return followerCache[userId];
+  const c = cachedFollower(userId);
+  if(c !== undefined) return c;
   if(!store.twitch.userId) return false;
   try{
     const r = await invoke('twitch_check_follower', { userId, broadcasterId: store.twitch.userId });
-    followerCache[userId] = !!r;
+    setCachedFollower(userId, !!r);
     return !!r;
   }catch(e){ return false; }
 }
@@ -125,7 +126,7 @@ function wirePresetPicker(){
 function saveCustomPreset(){
   const name = (prompt('Name this preset:')||'').trim();
   if(!name) return;
-  if(name === 'Custom' || PRESETS[name]){ alert(`"${name}" is a built-in preset name — pick a different one.`); return; }
+  if(name === 'Custom' || PRESETS[name]){ alert(`"${name}" is a built-in preset name. Pick a different one.`); return; }
   if(!cfg.customPresets) cfg.customPresets = {};
   cfg.customPresets[name] = {
     layout: JSON.parse(JSON.stringify(cfg.layout)),
@@ -256,7 +257,7 @@ function roleSectionHtml(){
       ${r.badgeImage?`<button class="btn-sm btn-ghost" id="rfBadgeImgClear" title="Remove custom image">✕</button>`:''}
     </span>`)}
   </div>
-  <div class="hint">Badge image: square PNG with transparency works best — <b>64×64 to 128×128 px, under 100&nbsp;KB</b> (hard cap 300&nbsp;KB). It renders at chat-text height (~18&nbsp;px), so bigger files just waste space.</div>`;
+  <div class="hint">Badge image: square PNG with transparency works best: <b>64×64 to 128×128 px, under 100&nbsp;KB</b> (hard cap 300&nbsp;KB). It renders at chat-text height (~18&nbsp;px), so bigger files just waste space.</div>`;
 }
 function rebuildRoleSection(){
   const el = $('chRoleSection'); if(!el) return;
@@ -297,7 +298,7 @@ function wireRoleSection(){
       if(!f) return;
       const bytes = await window.__TAURI__.fs.readFile(f);
       if(bytes.length > 300*1024){
-        alert('That image is '+Math.round(bytes.length/1024)+' KB — too big for a chat badge.\n\nRecommended: square PNG, 64×64 to 128×128 px, under 100 KB (max 300 KB).');
+        alert('That image is '+Math.round(bytes.length/1024)+' KB, which is too big for a chat badge.\n\nRecommended: square PNG, 64×64 to 128×128 px, under 100 KB (max 300 KB).');
         return;
       }
       let bin = '';
@@ -435,10 +436,17 @@ async function chatHandler(e){
   if(liveLog.length>30) liveLog = liveLog.slice(-30); // keep the log light — last 30 only
   renderLiveLog();
   if(ignored) return;
-  // Only worth a follow-check when no higher badge already applies — mods/VIPs/
-  // subs/the broadcaster never fall back to the follower tier anyway.
+  // Forward IMMEDIATELY — never await an API call here, or messages can reach
+  // the overlay out of order. Follower status comes from the persistent cache;
+  // on a miss we forward with the default style and warm the cache in the
+  // background, so only a viewer's very first message ever is unstyled.
   const elevated = d.is_broadcaster || d.is_mod || d.is_vip || d.is_sub;
-  const isFollower = elevated ? false : await checkFollower(d.user_id);
+  let isFollower = false;
+  if(!elevated){
+    const c = cachedFollower(d.user_id);
+    if(c !== undefined) isFollower = c;
+    else checkFollower(d.user_id); // fire-and-forget — styles their next message
+  }
   invoke('chat_overlay_message', { event: {
     type:'message', username:d.username, display:d.display, message:d.message,
     is_mod:d.is_mod, is_sub:d.is_sub, is_vip:d.is_vip, is_broadcaster:d.is_broadcaster,
@@ -449,9 +457,9 @@ async function chatHandler(e){
 function goalHandler(e){
   const d = e.detail;
   if(d.kind==='follow'){
-    // New follower — flip the session cache immediately so their chat
+    // New follower — flip the cache immediately so their chat
     // styling updates without waiting for a fresh API check
-    if(d.user_id) followerCache[d.user_id] = true;
+    if(d.user_id) setCachedFollower(d.user_id, true);
     if(cfg.alerts.follow.enabled===false) return;
     invoke('chat_overlay_alert', { event:{ type:'alert', kind:'follow', name:d.user_name } });
     playSfx(cfg.alerts.follow.sound);

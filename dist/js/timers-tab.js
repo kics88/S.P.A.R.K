@@ -50,22 +50,42 @@ function startTimer(t){
     }catch(e){}
   }
   t._running=true;
+  // Timestamp-based ticking (like the pomodoro): a throttled/late interval
+  // can't drift the clock — remaining is always derived from wall time, so
+  // the app matches the overlay even if the window is minimized for minutes.
+  if(t.mode==='down') t._endsAt   = Date.now() + t._remaining*1000;
+  else                t._startedAt = Date.now() - t._remaining*1000;
   t._interval=setInterval(()=>{
+    const prev=t._remaining;
     if(t.mode==='down'){
-      t._remaining=Math.max(0,t._remaining-1);
+      t._remaining=Math.max(0,Math.round((t._endsAt-Date.now())/1000));
       if(t._remaining===0){ finishTimer(t); return; }
     } else {
-      t._remaining++;
+      t._remaining=Math.max(0,Math.round((Date.now()-t._startedAt)/1000));
     }
-    // App UI only — the overlay ticks locally and gets pushes on state changes
-    renderTimerCard(t);
-  },1000);
+    // Cheap update: only the time text, and only when the second changes —
+    // no innerHTML rebuild / listener re-wiring per tick.
+    if(t._remaining!==prev) tickTimerCard(t);
+  },250);
   renderTimerCard(t);
   persist();
 }
 
+// Text-only refresh for the running tick (card + right-column preview).
+function tickTimerCard(t){
+  const card=$(`card-${t.id}`);
+  const d=card&&card.querySelector('.timer-display');
+  if(d) d.textContent=fmtTime(t._remaining);
+  const prev=$('tmPreview');
+  const pv=prev&&prev.querySelector(`[data-prev="${t.id}"] .tm-preview-time`);
+  if(pv) pv.textContent=fmtTime(t._remaining);
+}
+
 function pauseTimer(t){
   if(!t._running) return;
+  // Snapshot remaining from wall time before stopping
+  if(t.mode==='down' && t._endsAt)    t._remaining=Math.max(0,Math.round((t._endsAt-Date.now())/1000));
+  if(t.mode==='up'   && t._startedAt) t._remaining=Math.max(0,Math.round((Date.now()-t._startedAt)/1000));
   t._running=false; clearInterval(t._interval); renderTimerCard(t);
   persist();
 }

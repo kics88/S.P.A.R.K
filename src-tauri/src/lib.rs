@@ -54,6 +54,8 @@ pub struct Shared {
     pub overlay_credits:  Mutex<String>,
     // Per-tool master visibility (true = show on master)
     pub tool_visibility: Mutex<std::collections::HashMap<String, bool>>,
+    // Master overlay editor accent (border/handles) — settable from Settings
+    pub master_border: Mutex<String>,
     // HTTP server port
     pub server_port: AtomicU64,
     // Twitch runtime
@@ -152,6 +154,24 @@ fn set_tool_visibility(shared: State<Shared>, tool: String, visible: bool) {
         "type": "visibility",
         "tool": tool,
         "visible": visible,
+    }).to_string();
+    {
+        let mut q = shared.overlay_events.lock().unwrap();
+        q.push_back((id, payload));
+        while q.len() > 500 { q.pop_front(); }
+    }
+    shared.overlay_wake.notify_all();
+}
+
+// Master overlay editor accent colour — stored for the snapshot and pushed
+// live so an open master page recolours immediately.
+#[tauri::command]
+fn set_master_border(shared: State<Shared>, color: String) {
+    *shared.master_border.lock().unwrap() = color.clone();
+    let id = shared.overlay_seq.fetch_add(1, Ordering::SeqCst) + 1;
+    let payload = json!({
+        "_tool": "master", "_id": id,
+        "type": "master-style", "borderColor": color,
     }).to_string();
     {
         let mut q = shared.overlay_events.lock().unwrap();
@@ -396,6 +416,17 @@ fn diy_overlay_refresh(shared: State<Shared>, id: String) {
 
 pub fn run() {
     tauri::Builder::default()
+        // Must be the first plugin. A second SPARK would grab port 4748 and
+        // every overlay URL would quietly point at the wrong instance — so the
+        // second launch is blocked, and the running window pops up a notice.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Emitter;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+            let _ = app.emit("spark-second-instance", ());
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
@@ -426,6 +457,7 @@ pub fn run() {
                 overlay_counters: Mutex::new("[]".into()),
                 overlay_credits:  Mutex::new("{}".into()),
                 tool_visibility:  Mutex::new(std::collections::HashMap::new()),
+                master_border:    Mutex::new("#ffc83d".into()),
                 server_port: AtomicU64::new(0),
                 twitch_running: AtomicBool::new(false),
                 twitch_stop: stop,
@@ -441,6 +473,7 @@ pub fn run() {
             load_all_data,
             get_app_version,
             set_tool_visibility,
+            set_master_border,
             save_wheel, wheel_overlay_update, wheel_overlay_spin,
             save_giveaway, giveaway_overlay_update, giveaway_overlay_draw,
             save_timers, timers_overlay_update,
@@ -464,6 +497,7 @@ pub fn run() {
             twitch::twitch_connect_eventsub,
             twitch::twitch_connect_chat,
             twitch::twitch_disconnect,
+            twitch::twitch_logout,
             twitch::twitch_check_follower,
             twitch::twitch_check_subscriber,
             twitch::twitch_get_follower_count,
@@ -528,6 +562,7 @@ fn backup_data(shared: State<Shared>) -> Result<Value, String> {
         "chat":     d.chat,
         "counters": d.counters,
         "credits":  d.credits,
+        "diy":      d.diy,
         "settings": d.settings,
         "_spark_backup": true,
         "_version": 1,
@@ -552,6 +587,7 @@ fn restore_data(shared: State<Shared>, data: Value) -> Result<(), String> {
         if let Some(v) = data.get("chat")     { d.chat     = v.clone(); }
         if let Some(v) = data.get("counters") { d.counters = v.clone(); }
         if let Some(v) = data.get("credits")  { d.credits  = v.clone(); }
+        if let Some(v) = data.get("diy")      { d.diy      = v.clone(); }
         if let Some(v) = data.get("settings") { d.settings = v.clone(); }
         path = shared.data_path.lock().unwrap().clone();
         save_to_disk(&path, &d);

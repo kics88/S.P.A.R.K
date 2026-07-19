@@ -137,10 +137,28 @@ function renderCountsForConfig(cfg){
   });
 }
 
+// Fire a fake check-in at the overlay (and preview) — no channel points spent,
+// no counts touched.
+function testConfig(cfg){
+  const text = (cfg.text||'{name} has checked in {count} times!')
+    .replace(/\{name\}/g,'TestViewer').replace(/\{count\}/g,'7');
+  playSfx(cfg.sfx);
+  invoke('checkins_overlay_event',{ event:{
+    type:'checkin', configId: cfg.id,
+    text, avatar:'', display:'TestViewer',
+    shape: cfg.shape, animation: cfg.animation, entryDir: cfg.entryDir,
+    bgColor: cfg.bgColor, textColor: cfg.textColor, borderColor: cfg.borderColor,
+    font: cfg.font, duration: cfg.duration||5,
+    width: cfg.width||320, height: cfg.height||90,
+    fontSize: cfg.fontSize||15, pos: cfg.pos||'bottom-right',
+  }});
+}
+
 function configCardHtml(cfg){
   return `<div class="goal-card" id="cicfg-${cfg.id}">
     <div class="goal-card-header">
       <span class="goal-name">${esc(cfg.name)}</span>
+      <button class="btn-sm" data-citest="${cfg.id}">Test</button>
       <button class="btn-sm btn-ghost" data-ciedit="${cfg.id}">Edit</button>
       <button class="btn-sm del" data-cidel="${cfg.id}">Remove</button>
     </div>
@@ -161,6 +179,9 @@ function renderConfigList(){
   });
   el.querySelectorAll('button[data-ciedit]').forEach(btn=>{
     btn.addEventListener('click',()=>{ const cfg=configs.find(c=>c.id===btn.dataset.ciedit); if(cfg) openEditor(cfg); });
+  });
+  el.querySelectorAll('button[data-citest]').forEach(btn=>{
+    btn.addEventListener('click',()=>{ const cfg=configs.find(c=>c.id===btn.dataset.citest); if(cfg) testConfig(cfg); });
   });
 }
 
@@ -219,6 +240,7 @@ function buildFirstSection(){
       <input type="number" id="ciFirstHideSecs" value="${firstClaim.hideSecs||30}" min="1" max="300" style="width:80px">
     </div>
     <button class="btn-sm btn-gold mt full" id="ciFirstSave">Save First Claim settings</button>
+    <button class="btn-sm mt full" id="ciFirstTest">Test First Claim popup</button>
     <hr class="sep">
     <div style="font-size:.78rem;color:var(--muted)">This stream: <span id="ciFirstWinner">(no one yet)</span></div>
     <button class="btn-sm btn-ghost mt" id="ciFirstClear">Clear first claim (reset for this stream)</button>
@@ -261,6 +283,13 @@ function wireFirsEvents(){
     updateFirstPreview();
   });
   $('ciRefreshFirst').addEventListener('click',loadRewardsIntoSelects);
+  // Test uses a copy — the real winner/persisted state is untouched.
+  $('ciFirstTest').addEventListener('click',()=>{
+    playSfx(firstClaim.sfx);
+    invoke('checkins_overlay_event',{ event:{
+      type:'first', cfg: { ...firstClaim, winner:{ display:'TestViewer', avatar:'' } },
+    }});
+  });
   $('ciFirstAutoHide').addEventListener('change',e=>{
     $('ciFirstAutoHideOpts').style.display = e.target.checked ? 'block' : 'none';
   });

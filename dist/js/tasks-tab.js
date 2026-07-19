@@ -93,9 +93,18 @@ function renumber(){
 }
 
 // ── Task operations ────────────────────────────────────────────────────────────
+// In-flight guard: the awaited follower lookup yields, so two rapid
+// "!task add" messages could both pass the limit check and go one over.
+const addingTask = new Set();
 async function addTask(username, userId, display, text, isMod, isSub, isBroadcaster){
   text = text.trim();
   if(!text) return;
+  if(addingTask.has(userId)) return;
+  addingTask.add(userId);
+  try{ await doAddTask(username, userId, display, text, isMod, isSub, isBroadcaster); }
+  finally{ addingTask.delete(userId); }
+}
+async function doAddTask(username, userId, display, text, isMod, isSub, isBroadcaster){
   const isHost = isBroadcaster;
   const userTasks = tasks.filter(t=>t.userId===userId&&!t.done);
   let limit = cfg.maxViewer;

@@ -38,8 +38,7 @@ Streaming Panel for Alerts, Redeems and Key-tools. A Windows app for Twitch stre
 
 * **D.I.Y** - build your own chat and alert widgets. Style them with the visual designer or write your own CSS, pick a Google Font, and watch the live preview update while you edit. Alerts cover follows, subs, bits and raids with editable text and a sound. Chat can scroll any direction, tilt, show events inline, and stay single line if you want. Copy the widget URL into OBS and it runs off your live Twitch chat.
 
-Every tool has its own OBS browser source overlay, plus a master overlay that shows them all in one source. 
-_**NOTE:** The master overlay is buggy and a work in progress_
+Every tool has its own OBS browser source overlay. There is also a master overlay that can show several tools in one source, set up from the Settings tab, with drag and resize layout editing right in the browser.
 
 ## Install
 

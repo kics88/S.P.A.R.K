@@ -1,6 +1,6 @@
 [package]
 name = "spark"
-version = "0.7.20"
+version = "0.7.22"
 description = "S.P.A.R.K. - Streaming Panel for Alerts, Redeems and Key tools"
 authors = ["SPARK"]
 edition = "2021"
@@ -17,6 +17,7 @@ tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tiny_http = "0.12"
